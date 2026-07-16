@@ -162,6 +162,7 @@ public class AlertDataService(AlertsDbContext db, ILogger<AlertDataService> logg
         new(
             ticket.Id,
             ticket.WagerNumber,
+            ticket.AgentId,
             ticket.CustomerLoginName,
             ticket.InetWagerNumber,
             ticket.WagerType.ToString(),

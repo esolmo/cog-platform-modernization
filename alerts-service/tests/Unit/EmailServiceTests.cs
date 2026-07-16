@@ -46,6 +46,7 @@ public class EmailServiceTests
         new(
             Id: 1,
             WagerNumber: 12345,
+            AgentId: 1,
             CustomerLoginName: "CUST01",
             InetWagerNumber: "W12345",
             WagerType: "Straight",

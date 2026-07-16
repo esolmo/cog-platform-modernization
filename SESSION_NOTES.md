@@ -736,7 +736,48 @@ Files: `GenerateTestJwt()` added to each `*ApiFactory` class in the same 5 `*Int
 ### Bug 7 — lottery-service: test assumed a customer-scoped ticket-list route that doesn't exist
 `GetCustomerTickets_Returns200` queried `GET /api/lottery/tickets/{customerId}`, but `TicketsController` only has `GET /api/lottery/tickets/{id:long}` (single ticket by ticket ID) and `GET /api/lottery/tickets/my` (claims-based, using the `customerId` JWT claim). The test would have accidentally hit the single-ticket route and failed. Rewrote the test to purchase a ticket and then call `/api/lottery/tickets/my`, matching the actual claims-based design (and no longer sends the now-irrelevant `CustomerId` in the purchase body).
 
-### Status at time of writing
-Full integration re-run (all 6 services, all fixes applied) was kicked off and had not finished by the end of this note update — see next session's notes (or `dotnet test` locally) for final pass/fail counts.
+### Docker environment instability
+Mid-session, `auth-service`'s integration tests began hanging indefinitely (its SQL Server container's `sqlcmd -Q "SELECT 1"` health check retried for 8+ minutes without ever succeeding), and this later spread to other services failing near-instantly with `HttpRequestException`/`TimeoutException` on container start. Root cause: Docker Desktop/WSL2 degraded after very heavy same-session Testcontainers churn (dozens of SQL Server container spin-ups across many re-runs, plus two hung `dotnet test` processes that had to be force-killed). **A full Docker Desktop restart resolved it.** Lesson: never run two Testcontainers-based `dotnet test` invocations concurrently — even accidentally overlapping a quick diagnostic run with a still-running background suite caused contention and corrupted results (e.g. a "0/14 passed" betting-service result that was actually just contention, not a real regression).
+
+### GitHub repository created
+Pushed `modernization/` (not the legacy trunk) to a new public repo: **https://github.com/esolmo/cog-platform-modernization**. Scope and visibility (public, secrets included as-is) were both explicit user decisions — the repo has hardcoded dev secrets (shared JWT key, SQL `sa` passwords, default admin password) committed in plain text in `appsettings.Development.json` files and this notes file; rotate before any real deployment.
+
+## Follow-up fixes — same 2026-07-16 session, after Docker restart
+
+With a clean Docker daemon, re-ran and fixed the remaining real bugs (not infra) service by service:
+
+### alerts-service → 8/8 (was 7/8)
+`AlertTicketDto` was missing an `AgentId` property entirely — `GetAlerts_ReturnsOnlyAgentAlerts` always saw `AgentId: 0` client-side. Added `AgentId` to the DTO and to `AlertDataService.MapToDto`; fixed a unit test (`EmailServiceTests.MakeTicket()`) that constructed the DTO positionally.
+
+### admin-service → 10/10 (was 6/10)
+- `CreateUser_ValidRequest_Returns201` / `CreateUser_DuplicateUsername_Returns409`: test payloads omitted `MaxAccessLevel` and `RoleIds`, both required (non-nullable) fields on `CreateUserRequest` → `[ApiController]` auto-400'd before reaching the handler. Added the missing fields to the test payloads.
+- `UpdateUser_ValidRequest_Returns200`: same issue — `UpdateUserRequest` also requires `Email`, `MaxAccessLevel`, `IsActive`, `RoleIds`, all omitted. Added them.
+- `GetAuditLogs_Returns200`: test hit `/api/audit-logs`, which doesn't exist; the real route is `GET /api/config/audit` (`ConfigController`). Fixed the test URL.
+
+### accounts-service → 8/8 (was 5/8)
+- **Real production bug**: `TransactionService.CreateTransactionAsync` called `db.Database.BeginTransactionAsync()` directly, which EF Core's `SqlServerRetryingExecutionStrategy` forbids (`InvalidOperationException: does not support user-initiated transactions`) — this would have crashed **every real deposit/withdrawal in production** whenever the retry-on-failure execution strategy is active, not just in tests. Fixed by wrapping the whole operation in `db.Database.CreateExecutionStrategy().ExecuteAsync(...)` (extracted the original body into a new private `CreateTransactionCoreAsync`).
+- **Missing endpoint**: `GET /api/customers/{id}/balance` didn't exist anywhere in the API despite two tests depending on it. Added `ICustomerService.GetBalanceAsync` + `CustomerBalanceResponse(CreditLimit, CurrentBalance, AvailableCredit)` + a new `[HttpGet("{id:int}/balance")]` action on `CustomersController`.
+- `GetAgentCustomers_ReturnsOnlyThatAgentsCustomers`: test hit `/api/agents/{id}/customers`, which doesn't exist; the real route is `GET /api/customers/by-agent/{agentId}`, which also returns a `PagedResult<T>` wrapper (`{ Items, TotalCount, Page, PageSize }`), not a flat array. Fixed the test URL and added a `PagedCustomers` wrapper record to deserialize into.
+- `CreateTransaction_Deposit_Returns201AndUpdatesBalance`: test sent `Type = "Deposit"`, but `TransactionType` has no `Deposit` member (`Wire, Cash, Check, BankTransfer, FreePlay, CreditAdjustment, WagerSettlement, Reversal, CasinoAdjustment, ManualCorrection`) — silent enum-deserialization mismatch caused a 400. Changed the test to `Type = "Wire"`.
+
+### lottery-service → 8/8 (was 2/8)
+- `GetOpenDrawings_Returns200`: test hit a flat `/api/lottery/drawings?open=true` that doesn't exist; the real route is per-game: `GET /api/lottery/games/{id}/drawings`. Fixed the test URL (Pick3 always seeds as game ID 1).
+- All 4 `PurchaseTicket_*` tests: request bodies used `DrawingId`, but `PurchaseRequest` requires `DrawingDetailId` — silently bound to `0`, so every purchase failed as "drawing not found." Also the required `DateToPlay` field was missing entirely. Fixed all 4 test payloads (plus the purchase call inside `GetCustomerTickets_Returns200`).
+- **Real cross-service contract bug**: `LotteryService.Services.AccountsClient.GetBalanceAsync` deserialized a JSON `Balance` field from accounts-service's balance endpoint — but that endpoint (built this session, see accounts-service fixes above) returns `{ CreditLimit, CurrentBalance, AvailableCredit }`, no `Balance` key at all. In real production this would silently resolve every customer's balance to `0`, failing every lottery purchase with `INSUFFICIENT_BALANCE`. Fixed `AccountsClient`'s private `BalanceResponse` record to match the real shape and read `AvailableCredit` (the actual spending-power figure). Also stubbed `IAccountsClient` in `LotteryApiFactory` (`services.RemoveAll<IAccountsClient>(); services.AddSingleton<IAccountsClient>(new StubAccountsClient())`) so the integration tests don't depend on a live accounts-service.
+- **Real product bug**: `LotteryTicket.Description` was `nvarchar(500)`, too narrow for a Pick4 boxed ticket — 24 unique permutation descriptions concatenated (`"Jul-16 Pick4 Drawing 1 BOX 1-2-3-4; ..."` × 24) blow past 500 chars, causing `SqlException: String or binary data would be truncated`. Widened to `nvarchar(4000)` in `LotteryDbContext.OnModelCreating` + new migration `20260716221027_WidenTicketDescription.cs`.
+
+## Final status (2026-07-16 session end)
+
+| Service | Unit tests | Integration tests |
+|---|---|---|
+| alerts-service | 19/19 | 8/8 |
+| admin-service | 17/17 | 10/10 |
+| accounts-service | 28/28 | 8/8 |
+| lottery-service | 16/16 | 8/8 |
+| betting-service | 5/5 | not re-verified clean — last result (0/14) was contaminated by concurrent Testcontainers runs during the Docker instability above; needs a clean isolated re-run |
+| auth-service | — | still blocked by the Docker/Testcontainers hang described above; needs re-verification after the Docker restart |
+| reports-service | 7/7 | no integration suite |
+
+Real production bugs found and fixed this session (not test-only issues): the accounts-service EF execution-strategy crash on every transaction, the missing `GET /api/customers/{id}/balance` endpoint, and the lottery↔accounts balance-field contract mismatch.
 
 ---

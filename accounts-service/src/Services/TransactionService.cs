@@ -23,6 +23,13 @@ public class TransactionService(AccountsDbContext db, ILogger<TransactionService
     public async Task<Result<TransactionResponse>> CreateTransactionAsync(
         CreateTransactionRequest request, CancellationToken ct)
     {
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () => await CreateTransactionCoreAsync(request, ct));
+    }
+
+    private async Task<Result<TransactionResponse>> CreateTransactionCoreAsync(
+        CreateTransactionRequest request, CancellationToken ct)
+    {
         await using var dbTransaction = await db.Database.BeginTransactionAsync(ct);
         try
         {

@@ -3,6 +3,7 @@ namespace AlertsService.Models;
 public record AlertTicketDto(
     int Id,
     int WagerNumber,
+    int AgentId,
     string CustomerLoginName,
     string InetWagerNumber,
     string WagerType,

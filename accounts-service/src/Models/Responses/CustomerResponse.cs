@@ -28,3 +28,5 @@ public class BalanceSummary
     public int     PendingWagerCount    { get; set; }
     public decimal FreePlayBalance      { get; set; }
 }
+
+public record CustomerBalanceResponse(decimal CreditLimit, decimal CurrentBalance, decimal AvailableCredit);
