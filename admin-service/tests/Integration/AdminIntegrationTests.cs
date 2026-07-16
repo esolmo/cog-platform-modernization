@@ -59,7 +59,9 @@ public class AdminIntegrationTests : IAsyncLifetime
             Email = "newadmin@cog.test",
             Password = "Adm!n_P@ss1",
             FirstName = "New",
-            LastName = "Admin"
+            LastName = "Admin",
+            MaxAccessLevel = "Admin",
+            RoleIds = Array.Empty<int>()
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -76,7 +78,9 @@ public class AdminIntegrationTests : IAsyncLifetime
             Email = "dup2@cog.test",
             Password = "Adm!n_P@ss1",
             FirstName = "Dup",
-            LastName = "User"
+            LastName = "User",
+            MaxAccessLevel = "Admin",
+            RoleIds = Array.Empty<int>()
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -107,8 +111,12 @@ public class AdminIntegrationTests : IAsyncLifetime
         var userId = await _factory.SeedUserAsync("updateme");
         var response = await _client.PutAsJsonAsync($"/api/users/{userId}", new
         {
+            Email = "updateme@cog.test",
             FirstName = "Updated",
-            LastName = "Name"
+            LastName = "Name",
+            MaxAccessLevel = "Admin",
+            IsActive = true,
+            RoleIds = Array.Empty<int>()
         });
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
@@ -138,7 +146,7 @@ public class AdminIntegrationTests : IAsyncLifetime
     [Fact]
     public async Task GetAuditLogs_Returns200()
     {
-        var response = await _client.GetAsync("/api/audit-logs");
+        var response = await _client.GetAsync("/api/config/audit");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 

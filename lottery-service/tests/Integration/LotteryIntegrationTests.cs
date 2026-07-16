@@ -7,11 +7,13 @@ using System.Text;
 using FluentAssertions;
 using LotteryService.Data;
 using LotteryService.Entities;
+using LotteryService.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using Testcontainers.MsSql;
 using Xunit;
@@ -50,13 +52,13 @@ public class LotteryIntegrationTests : IAsyncLifetime
         games!.Should().HaveCountGreaterOrEqualTo(2); // Pick3 + Pick4 from seed
     }
 
-    // ── GET /api/lottery/drawings ─────────────────────────────────────────────────
+    // ── GET /api/lottery/games/{id}/drawings ──────────────────────────────────────
 
     [Fact]
     public async Task GetOpenDrawings_Returns200()
     {
         await _factory.SeedDrawingAsync(LotteryGameType.Pick3);
-        var response = await _client.GetAsync("/api/lottery/drawings?open=true");
+        var response = await _client.GetAsync("/api/lottery/games/1/drawings");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var drawings = await response.Content.ReadFromJsonAsync<List<DrawingSummary>>();
         drawings!.Should().NotBeEmpty();
@@ -71,8 +73,8 @@ public class LotteryIntegrationTests : IAsyncLifetime
 
         var response = await _client.PostAsJsonAsync("/api/lottery/tickets", new
         {
-            DrawingId = drawingId,
-            CustomerId = 1,
+            DrawingDetailId = drawingId,
+            DateToPlay = DateTime.UtcNow.Date,
             PickType = 1, // Straight
             Picks = new[]
             {
@@ -92,8 +94,8 @@ public class LotteryIntegrationTests : IAsyncLifetime
 
         var response = await _client.PostAsJsonAsync("/api/lottery/tickets", new
         {
-            DrawingId = drawingId,
-            CustomerId = 1,
+            DrawingDetailId = drawingId,
+            DateToPlay = DateTime.UtcNow.Date,
             PickType = 2, // Boxed
             Picks = new[]
             {
@@ -114,8 +116,8 @@ public class LotteryIntegrationTests : IAsyncLifetime
 
         var response = await _client.PostAsJsonAsync("/api/lottery/tickets", new
         {
-            DrawingId = drawingId,
-            CustomerId = 1,
+            DrawingDetailId = drawingId,
+            DateToPlay = DateTime.UtcNow.Date,
             PickType = 2, // Boxed
             Picks = new[]
             {
@@ -135,8 +137,8 @@ public class LotteryIntegrationTests : IAsyncLifetime
 
         var response = await _client.PostAsJsonAsync("/api/lottery/tickets", new
         {
-            DrawingId = drawingId,
-            CustomerId = 1,
+            DrawingDetailId = drawingId,
+            DateToPlay = DateTime.UtcNow.Date,
             PickType = 1,
             Picks = new[] { new { Number1 = 5, Number2 = 5, Number3 = 5, Amount = 1m } }
         });
@@ -152,7 +154,7 @@ public class LotteryIntegrationTests : IAsyncLifetime
         var drawingId = await _factory.SeedDrawingAsync(LotteryGameType.Pick3);
         await _client.PostAsJsonAsync("/api/lottery/tickets", new
         {
-            DrawingId = drawingId, PickType = 1,
+            DrawingDetailId = drawingId, DateToPlay = DateTime.UtcNow.Date, PickType = 1,
             Picks = new[] { new { Number1 = 7, Number2 = 7, Number3 = 7, Amount = 2m } }
         });
 
@@ -213,7 +215,17 @@ public class LotteryApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             if (desc != null) services.Remove(desc);
 
             services.AddDbContext<LotteryDbContext>(o => o.UseSqlServer(GetTestConnectionString()));
+
+            // Avoid a real HTTP dependency on accounts-service in isolated integration tests.
+            services.RemoveAll<IAccountsClient>();
+            services.AddSingleton<IAccountsClient>(new StubAccountsClient());
         });
+    }
+
+    private class StubAccountsClient : IAccountsClient
+    {
+        public Task<decimal> GetBalanceAsync(int customerId, CancellationToken ct = default) =>
+            Task.FromResult(10000m);
     }
 
     /// <summary>

@@ -16,7 +16,7 @@ public class AccountsClient(HttpClient http, ILogger<AccountsClient> logger) : I
         {
             var response = await http.GetFromJsonAsync<BalanceResponse>(
                 $"/api/customers/{customerId}/balance", ct);
-            return response?.Balance ?? 0m;
+            return response?.AvailableCredit ?? 0m;
         }
         catch (Exception ex)
         {
@@ -25,5 +25,5 @@ public class AccountsClient(HttpClient http, ILogger<AccountsClient> logger) : I
         }
     }
 
-    private record BalanceResponse(decimal Balance);
+    private record BalanceResponse(decimal CreditLimit, decimal CurrentBalance, decimal AvailableCredit);
 }

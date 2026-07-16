@@ -41,6 +41,16 @@ public class CustomersController(ICustomerService customerService) : ControllerB
         return Ok(result.Value);
     }
 
+    [HttpGet("{id:int}/balance")]
+    public async Task<IActionResult> GetBalance(int id, CancellationToken ct)
+    {
+        var result = await customerService.GetBalanceAsync(id, ct);
+        if (!result.IsSuccess)
+            return NotFound(new { result.Error, result.ErrorCode });
+
+        return Ok(result.Value);
+    }
+
     [HttpGet("by-login/{loginName}")]
     public async Task<IActionResult> GetCustomerByLogin(string loginName, CancellationToken ct)
     {

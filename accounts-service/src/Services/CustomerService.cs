@@ -12,6 +12,7 @@ public interface ICustomerService
 {
     Task<Result<CustomerResponse>>               CreateCustomerAsync(CreateCustomerRequest request, CancellationToken ct);
     Task<Result<CustomerResponse>>               GetCustomerByIdAsync(int customerId, CancellationToken ct);
+    Task<Result<CustomerBalanceResponse>>        GetBalanceAsync(int customerId, CancellationToken ct);
     Task<Result<CustomerResponse>>               GetCustomerByLoginAsync(string loginName, CancellationToken ct);
     Task<Result<PagedResult<CustomerResponse>>>  GetCustomersByAgentAsync(int agentId, int page, int pageSize, CancellationToken ct);
     Task<Result<CustomerResponse>>               UpdateCustomerAsync(int customerId, UpdateCustomerRequest request, CancellationToken ct);
@@ -139,6 +140,18 @@ public class CustomerService(
             return Result<CustomerResponse>.Failure($"Customer {customerId} not found.", "NOT_FOUND");
 
         return Result<CustomerResponse>.Success(MapToResponse(customer, customer.Agent.LoginName));
+    }
+
+    public async Task<Result<CustomerBalanceResponse>> GetBalanceAsync(int customerId, CancellationToken ct)
+    {
+        var balance = await db.CustomerBalances
+            .FirstOrDefaultAsync(b => b.CustomerId == customerId, ct);
+
+        if (balance is null)
+            return Result<CustomerBalanceResponse>.Failure($"Customer {customerId} not found.", "NOT_FOUND");
+
+        return Result<CustomerBalanceResponse>.Success(
+            new CustomerBalanceResponse(balance.CreditLimit, balance.CurrentBalance, balance.AvailableCredit));
     }
 
     public async Task<Result<CustomerResponse>> GetCustomerByLoginAsync(string loginName, CancellationToken ct)

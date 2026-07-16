@@ -114,7 +114,7 @@ public class AccountsIntegrationTests : IAsyncLifetime
         {
             CustomerId = customerId,
             Code = "Credit",
-            Type = "Deposit",
+            Type = "Wire",
             Amount = 250m,
             Description = "Test deposit",
             EnteredBy = "admin"
@@ -127,7 +127,7 @@ public class AccountsIntegrationTests : IAsyncLifetime
         balance!.CurrentBalance.Should().Be(250m);
     }
 
-    // ── GET /api/agents/{id}/customers ────────────────────────────────────────────
+    // ── GET /api/customers/by-agent/{agentId} ─────────────────────────────────────
 
     [Fact]
     public async Task GetAgentCustomers_ReturnsOnlyThatAgentsCustomers()
@@ -138,10 +138,11 @@ public class AccountsIntegrationTests : IAsyncLifetime
         await _factory.SeedCustomerAsync(agentId: agent1);
         await _factory.SeedCustomerAsync(agentId: agent2);
 
-        var response = await _client.GetAsync($"/api/agents/{agent1}/customers");
+        var response = await _client.GetAsync($"/api/customers/by-agent/{agent1}");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var customers = await response.Content.ReadFromJsonAsync<List<CustomerSummary>>();
-        customers!.Should().HaveCount(2);
+        var page = await response.Content.ReadFromJsonAsync<PagedCustomers>();
+        var customers = page!.Items;
+        customers.Should().HaveCount(2);
         customers.Should().AllSatisfy(c => c.AgentId.Should().Be(agent1));
     }
 
@@ -156,6 +157,7 @@ public class AccountsIntegrationTests : IAsyncLifetime
 
     private record BalanceResponse(decimal CreditLimit, decimal CurrentBalance, decimal AvailableCredit);
     private record CustomerSummary(int Id, string LoginName, int AgentId);
+    private record PagedCustomers(List<CustomerSummary> Items, int TotalCount, int Page, int PageSize);
 }
 
 [CollectionDefinition("Accounts Integration")]

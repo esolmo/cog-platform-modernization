@@ -37,7 +37,7 @@ public class LotteryDbContext(DbContextOptions<LotteryDbContext> options) : DbCo
         {
             e.HasKey(x => x.Id);
             e.Property(x => x.Total).HasColumnType("decimal(18,2)");
-            e.Property(x => x.Description).HasMaxLength(500);
+            e.Property(x => x.Description).HasMaxLength(4000);
             e.HasOne(x => x.DrawingDetail)
              .WithMany(x => x.Tickets)
              .HasForeignKey(x => x.DrawingDetailId)
