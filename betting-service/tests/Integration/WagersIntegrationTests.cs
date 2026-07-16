@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Testcontainers.MsSql;
 using Testcontainers.Redis;
@@ -117,7 +118,7 @@ public class WagersIntegrationTests : IAsyncLifetime
     // ── DELETE /api/wagers/{id} ──────────────────────────────────────────────────
 
     [Fact]
-    public async Task CancelWager_ExistingPendingWager_Returns200()
+    public async Task CancelWager_ExistingPendingWager_ReturnsNoContent()
     {
         var (_, periodId) = await _factory.SeedGameAsync();
         await _factory.SeedCustomerAsync(3);
@@ -132,7 +133,7 @@ public class WagersIntegrationTests : IAsyncLifetime
         var created = await createResp.Content.ReadFromJsonAsync<WagerResponse>();
 
         var cancel = await _client.DeleteAsync($"/api/wagers/{created!.Id}");
-        cancel.StatusCode.Should().Be(HttpStatusCode.OK);
+        cancel.StatusCode.Should().Be(HttpStatusCode.NoContent);
     }
 
     // ── GET /api/games ───────────────────────────────────────────────────────────
@@ -202,6 +203,15 @@ public class BettingApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
             services.AddSingleton<StackExchange.Redis.IConnectionMultiplexer>(_ =>
                 StackExchange.Redis.ConnectionMultiplexer.Connect(_redis.GetConnectionString()));
+
+            // The "redis" health check was registered against the fixed dev connection
+            // string in appsettings, not the ephemeral test container — replace it.
+            services.PostConfigure<HealthCheckServiceOptions>(options =>
+            {
+                foreach (var stale in options.Registrations.Where(r => r.Name == "redis").ToList())
+                    options.Registrations.Remove(stale);
+            });
+            services.AddHealthChecks().AddRedis(_redis.GetConnectionString(), "redis");
         });
     }
 
@@ -213,16 +223,20 @@ public class BettingApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         await db.Database.MigrateAsync();
 
         // Base agent required for all customer FKs — explicit Id requires IDENTITY_INSERT.
-        await using var transaction = await db.Database.BeginTransactionAsync();
-        await db.Database.ExecuteSqlRawAsync("SET IDENTITY_INSERT [Agents] ON");
-        db.Agents.Add(new Agent
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            Id = 1, LoginName = "baseagent", PasswordHash = "x",
-            Name = "Base Agent", AgentType = AgentType.Master
+            await using var transaction = await db.Database.BeginTransactionAsync();
+            await db.Database.ExecuteSqlRawAsync("SET IDENTITY_INSERT [Agents] ON");
+            db.Agents.Add(new Agent
+            {
+                Id = 1, LoginName = "baseagent", PasswordHash = "x",
+                Name = "Base Agent", AgentType = AgentType.Master
+            });
+            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlRawAsync("SET IDENTITY_INSERT [Agents] OFF");
+            await transaction.CommitAsync();
         });
-        await db.SaveChangesAsync();
-        await db.Database.ExecuteSqlRawAsync("SET IDENTITY_INSERT [Agents] OFF");
-        await transaction.CommitAsync();
     }
 
     public async Task<(int GameId, int PeriodId)> SeedGameAsync()
@@ -242,7 +256,16 @@ public class BettingApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             GameDate = DateTime.UtcNow.AddDays(1), Status = GameStatus.Upcoming
         };
         db.Games.Add(game);
-        await db.SaveChangesAsync();
+
+        var gameStrategy = db.Database.CreateExecutionStrategy();
+        await gameStrategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync();
+            await db.Database.ExecuteSqlRawAsync("SET IDENTITY_INSERT [Games] ON");
+            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlRawAsync("SET IDENTITY_INSERT [Games] OFF");
+            await transaction.CommitAsync();
+        });
 
         var period = new GamePeriod
         { GameId = gameId, PeriodDescription = "Full Game", PeriodNumber = 0 };
@@ -282,7 +305,16 @@ public class BettingApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
             MaxWagerTeaser = 500, MaxWagerIfBet = 500, MaxWagerReverse = 500,
             MinWager = 5, MaxWinPerTicket = 50000
         });
-        await db.SaveChangesAsync();
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await db.Database.BeginTransactionAsync();
+            await db.Database.ExecuteSqlRawAsync("SET IDENTITY_INSERT [Customers] ON");
+            await db.SaveChangesAsync();
+            await db.Database.ExecuteSqlRawAsync("SET IDENTITY_INSERT [Customers] OFF");
+            await transaction.CommitAsync();
+        });
     }
 
     /// <summary>
