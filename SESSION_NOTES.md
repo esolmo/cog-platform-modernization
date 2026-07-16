@@ -766,7 +766,23 @@ With a clean Docker daemon, re-ran and fixed the remaining real bugs (not infra)
 - **Real cross-service contract bug**: `LotteryService.Services.AccountsClient.GetBalanceAsync` deserialized a JSON `Balance` field from accounts-service's balance endpoint — but that endpoint (built this session, see accounts-service fixes above) returns `{ CreditLimit, CurrentBalance, AvailableCredit }`, no `Balance` key at all. In real production this would silently resolve every customer's balance to `0`, failing every lottery purchase with `INSUFFICIENT_BALANCE`. Fixed `AccountsClient`'s private `BalanceResponse` record to match the real shape and read `AvailableCredit` (the actual spending-power figure). Also stubbed `IAccountsClient` in `LotteryApiFactory` (`services.RemoveAll<IAccountsClient>(); services.AddSingleton<IAccountsClient>(new StubAccountsClient())`) so the integration tests don't depend on a live accounts-service.
 - **Real product bug**: `LotteryTicket.Description` was `nvarchar(500)`, too narrow for a Pick4 boxed ticket — 24 unique permutation descriptions concatenated (`"Jul-16 Pick4 Drawing 1 BOX 1-2-3-4; ..."` × 24) blow past 500 chars, causing `SqlException: String or binary data would be truncated`. Widened to `nvarchar(4000)` in `LotteryDbContext.OnModelCreating` + new migration `20260716221027_WidenTicketDescription.cs`.
 
-## Final status (2026-07-16 session end)
+## Follow-up session (same day, after PR #1 merged) — betting-service and auth-service
+
+`fix/integration-test-suite-bugs` was merged to `master`; this work continued on a new branch, `fix/betting-auth-integration-tests`.
+
+### betting-service → 7/7 (was 0/14, contaminated result from earlier Docker instability)
+
+A clean isolated run showed real failures, all self-inflicted from earlier fixes in *this same session*:
+
+- **Real bug, introduced by me earlier today**: `BettingApiFactory.ResetDatabaseAsync()`'s `IDENTITY_INSERT` fix (see Bug 3 above) used `db.Database.BeginTransactionAsync()` directly — the exact same `SqlServerRetryingExecutionStrategy` incompatibility as the accounts-service production bug. `SeedGameAsync` and `SeedCustomerAsync` had the identical explicit-`Id`-without-`IDENTITY_INSERT` problem (`Games` and `Customers` tables) that hadn't surfaced yet because `ResetDatabaseAsync` was failing first. Fixed all three by wrapping each in `db.Database.CreateExecutionStrategy().ExecuteAsync(...)`.
+- `HealthLive_Returns200` → 503: the `AddRedis(configuration.GetConnectionString("Redis"), "redis")` health check reads its connection string from static config at service-registration time, not from the fixture's ephemeral Testcontainers Redis instance — it was health-checking a Redis that doesn't exist in the test environment. A `ConfigureAppConfiguration` override attempt didn't take effect (ordering issue with `WebApplicationFactory`'s minimal-hosting interception, not fully diagnosed). Fixed reliably instead by removing the stale "redis" registration via `services.PostConfigure<HealthCheckServiceOptions>(...)` and re-adding it with the correct `_redis.GetConnectionString()`.
+- `CancelWager_ExistingPendingWager_Returns200`: `WagersController.CancelWager` is intentionally `[HttpDelete]` → `NoContent()` (204), matching its own `[ProducesResponseType(StatusCodes.Status204NoContent)]` annotation. The test expected 200 — a test-side bug. Fixed the test (and renamed it `..._ReturnsNoContent`).
+
+### auth-service — still blocked, confirmed environment-specific
+
+Re-tested after the Docker Desktop restart (twice, including once more in this follow-up session): **still hangs identically** — SQL container health check never completes, CPU on the dotnet process goes flat within a few minutes and stays flat. This is the *only* one of 6 services that exhibits this behavior, across 4+ separate attempts including a full daemon restart, while every other service's Testcontainers-based SQL/Redis setup works reliably. Root cause not identified — something specific to `AuthApiFactory`'s container configuration or a Docker-level resource/state issue tied to it specifically. **Needs investigation outside of this session** (e.g. comparing `AuthApiFactory` against a working fixture line-by-line, or testing with Docker Desktop's resource limits raised).
+
+## Final status (2026-07-16, end of day)
 
 | Service | Unit tests | Integration tests |
 |---|---|---|
@@ -774,10 +790,15 @@ With a clean Docker daemon, re-ran and fixed the remaining real bugs (not infra)
 | admin-service | 17/17 | 10/10 |
 | accounts-service | 28/28 | 8/8 |
 | lottery-service | 16/16 | 8/8 |
-| betting-service | 5/5 | not re-verified clean — last result (0/14) was contaminated by concurrent Testcontainers runs during the Docker instability above; needs a clean isolated re-run |
-| auth-service | — | still blocked by the Docker/Testcontainers hang described above; needs re-verification after the Docker restart |
+| betting-service | 41/41 | 7/7 |
 | reports-service | 7/7 | no integration suite |
+| auth-service | not re-verified this session | **blocked** — reproducible Testcontainers/Docker hang unique to this service, survives a full Docker Desktop restart |
 
-Real production bugs found and fixed this session (not test-only issues): the accounts-service EF execution-strategy crash on every transaction, the missing `GET /api/customers/{id}/balance` endpoint, and the lottery↔accounts balance-field contract mismatch.
+Real production bugs found and fixed today (not test-only issues):
+1. accounts-service: `TransactionService.CreateTransactionAsync` crashed on every real deposit/withdrawal (EF execution-strategy incompatibility)
+2. accounts-service: `GET /api/customers/{id}/balance` never existed as an endpoint
+3. lottery-service ↔ accounts-service: balance JSON contract mismatch — every real lottery purchase would see a $0 balance
+4. lottery-service: `Description` column too narrow for Pick4 boxed tickets, causing real purchase failures
+5. betting-service: same EF execution-strategy bug as #1, self-inflicted in this session's own test fixture (not present in production `WagerService` code — confirm no other `BeginTransactionAsync` usage exists in any `src/` folder before considering this fully closed)
 
 ---
