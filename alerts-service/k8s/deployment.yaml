@@ -1,0 +1,124 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alerts-service
+  namespace: cog
+  labels:
+    app: alerts-service
+    tier: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: alerts-service
+  template:
+    metadata:
+      labels:
+        app: alerts-service
+    spec:
+      containers:
+        - name: alerts-service
+          image: ${ECR_REGISTRY}/cog/alerts-service:${IMAGE_TAG}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: ConnectionStrings__DefaultConnection
+              valueFrom:
+                secretKeyRef:
+                  name: cog-db-secret
+                  key: alerts-connection-string
+            - name: ConnectionStrings__Redis
+              valueFrom:
+                secretKeyRef:
+                  name: cog-redis-secret
+                  key: connection-string
+            - name: Jwt__SecretKey
+              valueFrom:
+                secretKeyRef:
+                  name: cog-jwt-secret
+                  key: secret-key
+            - name: Jwt__Issuer
+              value: cog-auth-service
+            - name: Jwt__Audience
+              value: cog-services
+            - name: Email__Host
+              valueFrom:
+                configMapKeyRef:
+                  name: alerts-config
+                  key: smtp-host
+            - name: Email__Port
+              valueFrom:
+                configMapKeyRef:
+                  name: alerts-config
+                  key: smtp-port
+            - name: Email__Username
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: username
+            - name: Email__Password
+              valueFrom:
+                secretKeyRef:
+                  name: smtp-secret
+                  key: password
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alerts-service
+  namespace: cog
+spec:
+  selector:
+    app: alerts-service
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: alerts-service-hpa
+  namespace: cog
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: alerts-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

@@ -1,0 +1,86 @@
+name: Terraform
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'modernization/terraform/**'
+  push:
+    branches: [main]
+    paths:
+      - 'modernization/terraform/**'
+
+env:
+  TF_VERSION: '1.6.6'
+
+jobs:
+  terraform-plan:
+    name: Plan (${{ matrix.env }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [dev, staging]
+    defaults:
+      run:
+        working-directory: modernization/terraform/environments/${{ matrix.env }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - run: terraform init
+      - run: terraform validate
+      - name: Plan
+        id: plan
+        run: terraform plan -var="db_password=${{ secrets.DB_PASSWORD }}" -no-color -out=tfplan
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.env }}
+          path: modernization/terraform/environments/${{ matrix.env }}/tfplan
+      - name: Post plan to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const output = `#### Terraform Plan (${{ matrix.env }}) \`${{ steps.plan.outcome }}\`
+            \`\`\`
+            ${{ steps.plan.outputs.stdout }}
+            \`\`\``;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            });
+
+  terraform-apply-dev:
+    name: Apply (dev)
+    needs: terraform-plan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    defaults:
+      run:
+        working-directory: modernization/terraform/environments/dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: tfplan-dev
+          path: modernization/terraform/environments/dev
+      - run: terraform init
+      - run: terraform apply -auto-approve tfplan

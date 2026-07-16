@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>BettingService</RootNamespace>
+    <UserSecretsId>betting-service-secrets</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer"    Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer"          Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools"              Version="10.0.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Serilog.AspNetCore"                               Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console"                            Version="5.0.0" />
+    <PackageReference Include="Serilog.Sinks.File"                               Version="5.0.0" />
+    <PackageReference Include="Serilog.Enrichers.Environment"                    Version="2.3.0" />
+    <PackageReference Include="Serilog.Enrichers.Thread"                         Version="3.1.0" />
+    <PackageReference Include="StackExchange.Redis"                              Version="2.7.27" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.StackExchangeRedis"  Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis"  Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.0" />
+    <PackageReference Include="AspNetCore.HealthChecks.Redis"                    Version="9.0.0" />
+    <PackageReference Include="Swashbuckle.AspNetCore"                           Version="6.9.0" />
+    <PackageReference Include="FluentValidation.AspNetCore"                      Version="11.3.0" />
+    <PackageReference Include="AutoMapper"                                       Version="16.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\shared\domain\Cog.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

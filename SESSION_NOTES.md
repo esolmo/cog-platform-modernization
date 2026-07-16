@@ -1,0 +1,742 @@
+# Session Notes — 2026-07-16 (updated)
+
+## Status at end of session
+
+All work lives under `modernization/`. The original COG platform is untouched.
+
+---
+
+## Completed phases
+
+| Phase | Component | Status |
+|---|---|---|
+| 0 | Foundation — shared domain, Terraform modules, CI skeleton | Done |
+| 1 | auth-service (.NET 10, JWT, ASP.NET Core Identity) | Done |
+| 2 | accounts-service + accounts-ui | Done |
+| 3 | alerts-service (.NET 10 + SignalR, replaces InstantAction Node.js) | Done |
+| 4 | admin-service + admin-ui | Done |
+| 5 | lottery-service + lottery-ui + reports-service + reports-ui | Done |
+| 6 | Database migrations + seed data | Done |
+| 7 | Terraform staging environment + dev updates + Terraform CI | Done |
+| 8 | EF Core C# migration files (all 6 services) | Done |
+| 9 | Testcontainers integration tests (all 6 services) | Done |
+| 10 | Playwright E2E specs (betting-ui + accounts-ui) | Done |
+| 11 | Local dev hardening — all services running end-to-end | Done |
+
+---
+
+## What was built in the 2026-04-09 session
+
+### Phase 5 — lottery-service, lottery-ui, reports-service, reports-ui
+- lottery-service (port 5060): Permutations<T> ported, EF Core schema, balance check vs accounts-service, 17 tests
+- lottery-ui (port 5176): Pick3/Pick4 purchase flow, history page, ticket detail
+- reports-service (port 5070): Raw SQL wrapping legacy SPs, 6 tests
+- reports-ui (port 5177): TanStack Table + Recharts, 3 report pages, 5 tests
+
+### Phase 6 — Database Migrations
+`database/migrations/` — idempotent T-SQL scripts (CREATE IF NOT EXISTS pattern):
+- `auth-service/001_InitialCreate.sql`
+- `accounts-service/001_InitialCreate.sql`
+- `alerts-service/001_InitialCreate.sql`
+- `admin-service/001_InitialCreate.sql`
+- `lottery-service/001_InitialCreate.sql`
+
+### Phase 7 — Terraform
+All 6 modules implemented; dev + staging + prod environments; Terraform CI.
+
+### Phase 8 — EF Core migration files (all services)
+Each service has `InitialCreate.cs`, `InitialCreate.Designer.cs`, and `{Context}ModelSnapshot.cs`.
+
+---
+
+## What was built / fixed in the 2026-04-10 session
+
+### Port reassignment — all services
+All services were renumbered to avoid conflicts and to leave room between services.
+
+| Service | Old port | New http port | New https port |
+|---|---|---|---|
+| auth-service | 5001 | 5010 | 5011 |
+| accounts-service | 5002 | 5020 | 5021 |
+| admin-service | 5003 | 5030 | 5031 |
+| alerts-service | 5004 | 5040 | 5041 |
+| betting-service | 5005 | 5050 | 5051 |
+| lottery-service | 5006 | 5060 | 5061 |
+| reports-service | 5007 | 5070 | 5071 |
+
+### launchSettings.json — all services
+Created `src/Properties/launchSettings.json` for every service with explicit http/https port bindings and `ASPNETCORE_ENVIRONMENT=Development`.
+
+### Program.cs startup pattern — all services
+Added `[STARTUP]` checkpoint log messages throughout `Program.cs` to make service startup visible and diagnose hangs. Pattern:
+```
+[STARTUP] Checking database connectivity...
+[STARTUP] CanConnect = True
+[STARTUP] Applying pending migrations...
+[STARTUP] Migrations complete.
+```
+Also added `MaskPassword()` helper to log connection strings without exposing credentials.
+
+### EF Core fixes — applied to all services
+- `ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning))` in DbContext setup
+- Added `CanConnectAsync()` guard around `MigrateAsync()` to prevent startup hangs
+- Wrapped migration block in try/catch so a DB connectivity failure doesn't crash startup
+
+### Auth-service — SeedAdminUser migration
+Manually created two files to bootstrap the admin user:
+- `src/Migrations/20260410180000_SeedAdminUser.cs` — raw SQL INSERT (BCrypt hash for `Admin123!`, UserType=3 Employee, RoleId=5 Admin)
+- `src/Migrations/20260410180000_SeedAdminUser.Designer.cs` — required `[DbContext]` + `[Migration]` attributes for EF Core migration discovery
+
+Also manually registered `20260410165228_SyncModel` into `__EFMigrationsHistory` via raw SQL (database schema existed but history table was empty).
+
+### SQL Server auth fix — all services
+Changed all `appsettings.Development.json` connection strings from `Trusted_Connection=True` (causes SSPI errors on localhost) to explicit SQL auth:
+```
+Server=localhost,1433;Database=...;User ID=sa;Password=YourStrong!Passw0rd;Trust Server Certificate=True
+```
+
+### JWT authentication — all services
+**Root problem:** .NET 10 JWT bearer defaults to `JsonWebTokenHandler` which rejects tokens without a `kid` header (IDX10517). Auth-service signs tokens using `JwtSecurityTokenHandler` which doesn't emit `kid`.
+
+**Fix applied to all services (`AddJwtBearer`):**
+```csharp
+options.UseSecurityTokenValidators = true;  // force JwtSecurityTokenHandler
+options.TokenValidationParameters = new TokenValidationParameters
+{
+    ...
+    IssuerSigningKey = signingKey,
+    IssuerSigningKeyResolver = (_, _, _, _) => [signingKey],  // belt-and-suspenders
+    ClockSkew = TimeSpan.FromSeconds(30)
+};
+options.Events = new JwtBearerEvents
+{
+    OnAuthenticationFailed = ctx => { /* log warning */ }
+};
+```
+
+### JWT SecretKey alignment
+Both `appsettings.json` (base) and `appsettings.Development.json` for **all services** now use the same key:
+```
+6UZhMYYN1EqSmi7rtNvpRBS46WsNbVuYZwXzNft7h8c=
+```
+This ensures services work consistently regardless of whether `ASPNETCORE_ENVIRONMENT=Development` is set. Production key must be injected via `Jwt__SecretKey` environment variable from AWS Secrets Manager.
+
+**Fingerprint diagnostic logging** added to `AddJwtAuthentication` in each service (logs SHA256 fingerprint of the validation key at startup).
+
+### AutoMapper upgrade — accounts-service
+- Upgraded from 13.0.1 (GHSA-rvv3-g6hj-g44x high severity vulnerability) to 16.1.1
+- Fixed AutoMapper 14+ API: `AddAutoMapper(typeof(Program))` → `AddAutoMapper(cfg => cfg.AddMaps(typeof(Program).Assembly))`
+
+### Package additions — accounts-service
+- Added `Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore` v10.0.0 (required for `AddDbContextCheck`)
+
+### README updates — all services
+Updated all 7 service README files to reflect:
+- Correct http/https ports
+- JWT Secret Key section with dev key and production guidance
+- Swagger token copy instructions (copy only `accessToken`, no `Bearer ` prefix)
+- `dotnet run --launch-profile http` in Local Development section
+- Ports table (http/https)
+- `Jwt__Key` → `Jwt__SecretKey` throughout
+- `Audience: "cog-platform"` → `"cog-services"` where incorrect
+- `.NET 8 SDK` → `.NET 10 SDK` in betting-service
+- Known Issues table (IDX10517 fix, SSPI fix)
+
+---
+
+## What was fixed in the 2026-04-11 session
+
+### Phase 11 completion — admin, alerts, betting, lottery, reports services
+
+All 5 remaining services fixed and verified (`dotnet build` clean, 0 errors):
+
+**admin-service, alerts-service** (inline JWT in Program.cs):
+- `Jwt:Key` → `Jwt:SecretKey` config key lookup
+- Added `var signingKey` + `IssuerSigningKeyResolver = (_, _, _, _) => [signingKey]`
+- Added `OnAuthenticationFailed` logging via `Log.Warning`
+- `appsettings.json`: `Jwt:Key` → `Jwt:SecretKey`, aligned dev key, `"cog-platform"` → `"cog-services"`
+- `appsettings.Development.json`: added full `ConnectionStrings` (SQL auth) + `Jwt` sections
+
+**betting-service** (JWT in ServiceCollectionExtensions.cs):
+- Already used `SecretKey` key name — fixed placeholder value to aligned dev key
+- Added `var signingKey` + `IssuerSigningKeyResolver`
+- Added `OnAuthenticationFailed` (uses `ILogger<JwtBearerEvents>` from DI)
+- `appsettings.Development.json`: added full `ConnectionStrings` (SQL auth) + `Jwt` sections
+
+**lottery-service**:
+- `jwtSettings["Key"]` → `jwtSettings["SecretKey"]`
+- Hardcoded accounts-service fallback URL port 5002 → 5020
+- `appsettings.json`: key rename + value + audience + `Services:Accounts` port 5002 → 5020
+- `appsettings.Development.json`: created (was missing) with SQL auth + Jwt + `Services:Accounts` pointing to localhost:5020
+
+**reports-service**:
+- `jwtSettings["Key"]` → `jwtSettings["SecretKey"]`
+- `appsettings.json`: key rename + value + audience fix
+- `appsettings.Development.json`: created (was missing) with SQL auth + Jwt
+
+### admin-service — authorization policy fix (403 errors)
+`CanViewConfig`, `CanEditConfig`, `CanManageUsers`, etc. were using invented lowercase policy names (`"config.view"`, `"users.view"`) that didn't match JWT claim values. Fixed to use `PermissionNames` PascalCase constants from auth-service:
+```csharp
+options.AddPolicy("CanViewUsers",     p => p.RequireClaim("permission", "Users.Manage", "Roles.Manage"));
+options.AddPolicy("CanManageUsers",   p => p.RequireClaim("permission", "Users.Manage"));
+options.AddPolicy("CanManageRoles",   p => p.RequireClaim("permission", "Roles.Manage"));
+options.AddPolicy("CanViewConfig",    p => p.RequireClaim("permission", "System.Config"));
+options.AddPolicy("CanEditConfig",    p => p.RequireClaim("permission", "System.Config"));
+options.AddPolicy("CanViewAuditLogs", p => p.RequireClaim("permission", "Users.Manage", "System.Config"));
+```
+
+**reports-service** had same issue: `"reports.view"` → `"Reports.View", "Reports.Export"`.
+
+### admin-service — entity/migration schema drift (500 errors)
+
+Four divergences between entity classes and what the EF Core migrations had created:
+
+1. **`Invalid object name 'Users'`** — `DbSet<ApplicationUser>` named `Users` → EF used `Users` as table name, but migration created `ApplicationUsers`. Fixed: added `b.ToTable("ApplicationUsers")` in `OnModelCreating`.
+
+2. **`Invalid column name 'UpdatedByUserId'`** — `SystemConfiguration` entity had `int UpdatedByUserId` but migration created `nvarchar UpdatedBy`. Fixed: entity → `string? UpdatedBy`; `SystemConfigService` → `existing.UpdatedBy = updatedByUserId.ToString()`.
+
+3. **`Invalid column name 'Username'` (AuditLog)** — entity had `Username` but no migration added it. Created `20260411000000_AddUsernameToAuditLog.cs` with `defaultValue: "system"`.
+
+4. **`Invalid column name 'AssignedAt'`, `AssignedByUserId'`** — `UserRole` entity had these columns but no migration. Created `20260411000001_AddMissingColumns.cs` adding both with `defaultValueSql: "GETUTCDATE()"` and `defaultValue: 0`.
+
+Both new migration `.cs` and `.Designer.cs` files created; `AdminDbContextModelSnapshot.cs` updated to include all new columns.
+
+### accounts-service — T-SQL vs EF naming mismatch (500 errors)
+Phase 6 T-SQL scripts created tables with singular/wrong names (e.g. `Customer` instead of `Customers`). EF Core migrations used different names. Resolution: dropped the `CogAccounts` database with `dotnet ef database drop --force` to let EF recreate it correctly from migrations.
+
+---
+
+## What was fixed in the 2026-04-14 session
+
+### betting-service — ICurrentUser not registered (DI crash at startup)
+`WagerService` took `ICurrentUser` as a constructor parameter but it was never registered. Created `HttpContextCurrentUser` reading `domain_id` → `AgentId`, `login_name` → `LoginName`, `ClaimTypes.Role` → `Roles` from the JWT claims via `IHttpContextAccessor`. Registered both in `AddApplicationServices`.
+
+### betting-service / lottery-service — migration conflict (tables already exist)
+T-SQL Phase 6 scripts had already created tables, but `__EFMigrationsHistory` was empty so EF tried to re-create them. Added idempotent SQL before `MigrateAsync()` to seed the history table with `20260409120000_InitialCreate` when the target table already exists.
+
+### betting-service / lottery-service / reports-service — Swagger Bearer scheme
+`SecuritySchemeType.ApiKey` sends the Authorization header value verbatim — users had to type `Bearer <token>`. Changed to `SecuritySchemeType.Http` + `Scheme = "bearer"` so Swagger UI prepends the prefix automatically (same as admin/accounts services).
+
+### All 7 services — health endpoints
+- auth-service and betting-service were using `UseHealthChecks` (old middleware); converted to `MapHealthChecks` (endpoint routing)
+- auth-service was still using the `CanConnectAsync` guard; replaced with direct `MigrateAsync()`
+
+### All 7 K8s manifests — consistency pass
+Fixed lottery-service and reports-service manifests (old port 5006/5007, `Jwt__Key`, `cog-platform` audience, bare `cog/...:latest` image). Fixed admin-service and alerts-service manifests (same issues). All 7 now use:
+- `image: ${ECR_REGISTRY}/cog/<svc>:${IMAGE_TAG}`
+- `containerPort: 8080`
+- `Jwt__SecretKey` from `cog-jwt-secret`
+- `Audience: cog-services`
+
+### database/seed/05_system_config_defaults.sql — placeholder removed
+`smtp.password` value changed from `[REPLACE_BEFORE_GOLIVE]` to empty string with description pointing to `Email__Password` env var / `smtp-secret` K8s secret.
+
+### CanConnectAsync guard removed — accounts-service, admin-service, alerts-service
+**Root problem:** startup guard called `CanConnectAsync()` before `MigrateAsync()`. When the database doesn't exist yet (freshly dropped or first run), `CanConnectAsync()` returns `false` → `MigrateAsync()` is skipped → service starts without a DB → every request fails with `RetryLimitExceededException: Login failed`.
+
+**Fix:** removed the `CanConnectAsync()` gate; now calls `MigrateAsync()` directly. `MigrateAsync()` creates the DB if absent and applies all pending migrations. The surrounding `try/catch` handles genuine SQL Server unreachability.
+
+Applied to: `accounts-service/src/Program.cs`, `admin-service/src/Program.cs`, `alerts-service/src/Program.cs`.
+
+---
+
+## Critical: local dev startup order
+
+Services must be started with `--launch-profile http` to load `appsettings.Development.json`:
+```bash
+dotnet run --launch-profile http
+```
+
+**`IOptions<T>` does NOT hot-reload.** If you change `appsettings.json`, you MUST restart the service. Auth-service must be restarted before getting new tokens — old tokens signed with a stale key will fail validation in other services.
+
+---
+
+## Known local issues
+
+| Issue | Status |
+|---|---|
+| Vitest workers don't start on Windows/Node 24 for React UIs | Existing — pass in CI (Ubuntu/Node 20) |
+| JWT key mismatch if auth-service not restarted after key change | Fixed — both `appsettings.json` and `appsettings.Development.json` now use same key; restart auth-service + get fresh token |
+
+---
+
+## What was built in the 2026-04-14 session (continued)
+
+### casino-service (new — port 5080 / 5081)
+Full Live Dealer backend replacing `crazyhorse/index.asp`:
+- Two-step deposit/withdraw wrapping the external XML API (`ittds.newland.cr`)
+- `LiveDealerXmlClient` — `XDocument` parsing, `WebUtility.UrlEncode`, idempotency via `transferProcessedEarlier`
+- `CasinoService` — init → confirm flow with rollback via `IAccountsClient.RollbackDocumentAsync`
+- EF Core: `CasinoPlayers`, `CasinoTransactions` tables; unique index on (CustomerId, CasinoId)
+- K8s manifest + Dockerfile; 10 unit tests pass
+
+### casino-ui (new — port 5178)
+Live Dealer SPA — dark casino theme (gray-900 / yellow-400):
+- `LoginPage` — username/password → POST `/api/auth/login` → Zustand auth store
+- `SetupPage` — first-time nickname registration → POST `/api/Casino/register`
+- `CasinoLobbyPage` — balance cards, deposit/withdraw modals, "Play Now" link opening lobbyUrl
+- `RequireAuth` route guard; TanStack Query with 60s balance auto-refresh
+- 9 unit tests (LoginPage, SetupPage, CasinoLobbyPage)
+
+### shared/ui-components (new)
+Shared React component library (`@cog/ui-components`):
+- `Button` (4 variants, 3 sizes, loading spinner)
+- `Input` (error state, prefix character)
+- `FormField` (label + hint + error wrapper)
+- `Badge` (5 variants)
+- `Modal` (Escape / backdrop close, accessible role=dialog)
+- `LoadingSpinner` (3 sizes, sr-only label)
+- `Alert` (4 variants, dismissible)
+- `PageHeader` (title + subtitle + actions slot)
+- `NavBar` (brand + nav links + actions slot)
+- `DataTable` (generic typed columns, custom render, loading/empty states)
+- `cn()` utility (clsx + tailwind-merge)
+- 32 unit tests (Button×6, Input×5, Badge×4, Modal×6, Alert×6, DataTable×5, cn×4)
+
+---
+
+## What was fixed in the 2026-04-14 session (second pass)
+
+### All 6 UI Vite proxy configs — stale ports corrected
+All UIs were pointing to old (pre-renumber) service ports. Updated `vite.config.ts` for every UI:
+
+| UI | Old proxy | New proxy |
+|---|---|---|
+| admin-ui | `/api` → `:5003` | `/api/auth` → `:5010`; `/api` → `:5030` |
+| accounts-ui | `/api` → `:5002` | `/api/auth` → `:5010`; `/api` → `:5020` |
+| betting-ui | port `3000`; `/api`+`/hubs` → `:5001` | port `5173`; `/api/auth` → `:5010`; `/api` → `:5050`; `/hubs` → `:5040` (ws) |
+| lottery-ui | `/api` → `:5006` | `/api` → `:5060` |
+| reports-ui | `/api` → `:5007` | `/api` → `:5070` |
+| casino-ui | `/api` → `:5080` | already correct |
+
+Auth-service calls (`/api/auth/*`) now use a separate higher-priority proxy rule, because each UI's own backend service doesn't host the `/auth` routes.
+
+### All 6 UIs — ESLint v9, Vite v6, dependency upgrades
+All UIs were on ESLint v8 (deprecated), causing multiple `npm warn deprecated` messages on install and 8 security vulnerabilities from Vite v5.
+
+Changes per UI (`package.json` + new `eslint.config.js`):
+- `eslint` v8 → v9 (flat config format)
+- Removed `@typescript-eslint/parser` + `@typescript-eslint/eslint-plugin`; replaced with `typescript-eslint ^8` (combined package)
+- Added `@eslint/js ^9` and `globals ^15`
+- `eslint-plugin-react-hooks` v4 → v5
+- `eslint-plugin-react-refresh` → `^0.4.18`
+- `vite` v5 → v6 (addresses CVEs)
+- `@vitejs/plugin-react` → `^4.3.4`
+- `axios` → `^1.8.0`, `react`/`react-dom` → `^18.3.1`, `typescript` → `^5.7.3`
+- Lint script: removed `--ext ts,tsx --report-unused-disable-directives` (handled by flat config)
+
+**Remaining deprecation warning:** `whatwg-encoding` — transitive dep of `jsdom`; cannot be fixed without jsdom releasing an update. No security impact.
+
+### admin-ui — login 400 Bad Request (field name mismatch)
+Auth-service expected `loginName` in the request body; admin-ui was sending `username` → 400 validation failure.
+
+Auth-service's `AuthTokenResponse` is flat (`userId`, `loginName`, `userType`, `domainEntityId`, `roles`, `permissions`); admin-ui `LoginPage` was expecting a nested `{ user: { id, username, email } }` shape.
+
+Files changed:
+- `src/pages/LoginPage.tsx` — request body: `{ loginName: data.username, password }`; response mapped to store shape
+- `src/store/authStore.ts` — `AuthUser` interface: removed `username`/`email`; added `loginName`, `userType`, `domainEntityId`
+- `src/layouts/DashboardLayout.tsx` — `user.username` → `user.loginName`
+- `src/test/authStore.test.ts` — updated `setUser` calls and assertions to match new interface
+
+Note: `UserDto` in `src/api/users.ts` was NOT changed — admin-service's user management API correctly uses `username`/`email` for its own user list.
+
+---
+
+---
+
+## What was built / fixed in the 2026-04-17 session
+
+### Agent creation 400 fix — `JsonStringEnumConverter`
+`System.Text.Json` serializes enums as integers by default. The frontend sends string enum values (`"Agent"`, `"WeeklyProfit"`, etc.) which caused 400 errors on all enum-bearing request bodies.
+
+Fix: added `JsonStringEnumConverter` globally in `accounts-service/src/Program.cs`:
+```csharp
+builder.Services.AddControllers()
+    .AddJsonOptions(o =>
+        o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
+```
+Affects: `AgentType`, `CommissionType`, `TransactionCode`, `TransactionType` — all enums in request bodies now deserialize correctly from strings.
+
+### All UIs — dark sidebar style applied (admin-ui pattern)
+Applied the admin-ui dark sidebar pattern (`bg-gray-900`, `bg-indigo-600` active, `text-gray-300` inactive) to all other UIs:
+- `accounts-ui/src/components/Layout.tsx` — full rewrite to dark sidebar
+- `reports-ui/src/layouts/DashboardLayout.tsx` — slate → gray-900/indigo
+- `betting-ui/src/components/layout/MainLayout.tsx` — dark sidebar, yellow wager-slip badge preserved
+- `casino-ui/src/components/layout/MainLayout.tsx` — `bg-gray-950`, yellow-600 active to preserve casino branding
+
+### accounts-service + accounts-ui — agent position & figures (task #22/#23)
+
+**Backend (accounts-service):**
+- `AgentPositionResponse.cs` — per-agent position snapshot (customer count, total balance, pending wagers, free play, credit)
+- `AgentPositionSummaryResponse.cs` — compact list for portfolio overview
+- `AgentFiguresResponse.cs` — period-over-period figures with per-customer breakdown
+- `AgentService.cs` — added `GetPositionAsync`, `GetPositionSummaryAsync`, `GetFiguresAsync`
+  - Key fix: `db.CustomerTransactions` (not `db.Transactions`); `.ThenInclude` for nested nav props
+- `AgentsController.cs` — added `GET /agents/position-summary`, `GET /agents/{id}/position`, `GET /agents/{id}/figures`
+
+**Frontend (accounts-ui):**
+- `types/accounts.ts` — added `AgentPosition`, `AgentPositionSummary`, `CustomerFiguresLine`, `AgentFigures`
+- `api/accountsApi.ts` — added `getAgentPositionSummary`, `getAgentPosition`, `getAgentFigures`
+- `pages/agent-tabs/FiguresTab.tsx` — position cards + date-range figures with per-customer table
+- `pages/PositionPage.tsx` — portfolio overview: all-agent summary cards + table with utilisation % colour coding
+- `pages/AgentDetailPage.tsx` — added Figures tab
+- `App.tsx` — added `/position` route
+
+### accounts-service + accounts-ui — settlement page (task #21)
+- `pages/SettlementPage.tsx` — week-ending date picker, Calculate All button, per-agent rows with inline result state
+  - AgentRow: calculate → confirm sequential flow; status badges (Pending/Calculated/Confirmed)
+  - `handleCalculateAll`: sequential async loop avoiding rate-limit hammering
+- `App.tsx` — added `/settlement` route
+
+### Testcontainers integration test timeout fix
+`AccountsApiFactory.InitializeAsync()` was timing out after 60s (default). SQL Server container needs 2–3 min to initialize.
+Fix: `.WithStartupTimeout(TimeSpan.FromMinutes(5))` on `MsSqlBuilder`.
+Result: 28/36 pass (8 failures unrelated — separate DB constraint issues).
+
+### betting-ui npm install fix
+`@vitest/ui@^4.1.3` conflicted with `vitest@^3.2.4` (must match major version).
+Fix: changed `"@vitest/ui": "^4.1.3"` → `"^3.2.4"` in `betting-ui/package.json`.
+Used `npx rimraf` to clear locked `node_modules` (Windows `ENOTEMPTY`/`EPERM` blocked `rm -rf`).
+Install completed: 0 vulnerabilities, exit 0.
+
+### Task #25 — Extended customer management tabs
+`CustomerDashboardPage.tsx` wired up three additional tabs:
+- `PermissionsTab` — feature flags (instant action, live dealer, parlays, etc.)
+- `FreePlayTab` — free play balance history and award form
+- `CommentsTab` — internal agent notes with add/view
+Tab bar gains `overflow-x-auto` + `min-w-max` for horizontal scroll on small screens.
+
+### Task #29 — Auth provisioning for admin-created users
+Admin-service creates users into `COGDB_Admin.dbo.ApplicationUsers`; auth-service reads `COGDB_Auth.dbo.Users`. Login failed for admin-created users because no auth record existed.
+
+Fix:
+- `auth-service`: new `POST /api/users` endpoint (`UsersController`) + `ProvisionUserRequest` DTO
+- `admin-service`: new `AuthProvisioningService` (HTTP POST to auth-service), `IAuthProvisioningService` interface
+- `admin-service/UserService.CreateUserAsync`: calls provisioning after saving `ApplicationUser`; non-fatal on failure (logs warning, continues)
+- Config: `Services:AuthService:BaseUrl` in `appsettings.json`
+
+### Task #26 — Batch transaction entry (complete)
+
+**Backend (accounts-service):**
+- `BatchCreateTransactionRequest.cs` — list of `CreateTransactionRequest` + `StopOnFirstError` flag
+- `BatchTransactionResponse.cs` + `BatchTransactionLineResult.cs` — per-row success/failure with error details
+- `ITransactionService.CreateBatchAsync` → `TransactionService.CreateBatchAsync` — sequential execution, collects per-row results
+- `POST /api/transactions/batch` — max 200 rows, validates non-empty; returns 200 with full results (partial success allowed)
+
+**Frontend (accounts-ui):**
+- `types/accounts.ts` — added `BatchCreateTransactionRequest`, `BatchTransactionLineResult`, `BatchTransactionResponse`
+- `api/accountsApi.ts` — added `createBatchTransactions`
+- `pages/BatchTransactionsPage.tsx` — spreadsheet-style table
+  - Dynamic rows (add/remove, +5 bulk add)
+  - Per-row: customer ID, Code (Credit/Debit), Type selector, Amount, Description, Reference, Payment Method
+  - Running credit/debit totals in header
+  - Per-row ✓/✗ status after submit; failed row error details listed below table
+  - Stop-on-first-error toggle
+  - Clear button resets all state
+- `App.tsx` — route `/transactions/batch`
+- `Layout.tsx` — "Batch Transactions" nav link
+
+---
+
+## Remaining work
+
+### Medium term
+- Set real secrets in AWS Secrets Manager before first deploy: JWT key, SMTP password, DB password
+  - SMTP password is stored empty in `05_system_config_defaults.sql`; inject via `Email__Password` env var from `smtp-secret` K8s secret
+
+### Longer term
+- Build `Cog.Observability` NuGet package (Serilog + CloudWatch + X-Ray)
+- Migration validation: run legacy + new systems in parallel for 2 weeks
+- Wager payout validation: compare calculations for 100% match against legacy
+
+---
+
+## File layout
+
+```
+modernization/
+├── .github/workflows/
+│   ├── dotnet-services.yml   — CI for 7 .NET services
+│   ├── frontend-apps.yml     — CI for 5 React UIs
+│   └── terraform.yml         — Terraform validate + plan + apply
+├── shared/domain/            — Shared C# entity library
+├── auth-service/             — JWT auth (http:5010 / https:5011)
+├── betting-service/          — Wagers, games, lines (http:5050 / https:5051)
+├── betting-ui/               — Web betting SPA (port 5173)
+├── accounts-service/         — Customers, transactions, agent hierarchy (http:5020 / https:5021)
+├── accounts-ui/              — Account management SPA (port 5174)
+├── alerts-service/           — SignalR real-time alerts (http:5040 / https:5041)
+├── admin-service/            — Users, roles, config, audit (http:5030 / https:5031)
+├── admin-ui/                 — Admin SPA (port 5175)
+├── lottery-service/          — Pick3/Pick4 lottery (http:5060 / https:5061)
+├── lottery-ui/               — Lottery SPA (port 5176)
+├── reports-service/          — Wager/transaction/agent reports (http:5070 / https:5071)
+├── reports-ui/               — Reports dashboard SPA (port 5177)
+├── casino-service/           — Live Dealer integration (http:5080 / https:5081)
+├── casino-ui/                — Live Dealer SPA (port 5178)
+├── shared/
+│   ├── domain/               — Shared C# domain entities (Cog.Domain)
+│   └── ui-components/        — Shared React component library (@cog/ui-components)
+├── database/
+│   ├── migrations/           — Per-service DDL scripts
+│   ├── seed/                 — Reference data (5 files)
+│   └── README.md
+└── terraform/
+    ├── modules/              — 6 fully-implemented modules
+    ├── environments/
+    │   ├── dev/
+    │   ├── staging/
+    │   └── prod/
+    └── README.md
+```
+
+---
+
+---
+
+## What was built / fixed in the 2026-04-18 session
+
+### Task #16 — Game management CRUD in betting-service (complete)
+
+**New request models (`betting-service/src/Models/Requests/GameRequests.cs`):**
+- `CreateGameRequest` — sport, teams, date, rotation, optional periods list
+- `UpdateGameRequest` — teams, date, rotation (guards against Final/Cancelled status)
+- `UpdateGameStatusRequest` — status transition
+- `CreateGamePeriodRequest` — description + period number
+- `CreateSportTypeRequest` / `UpdateSportTypeRequest` — name, code (uppercase-normalised), active flag, display order
+
+**`IGameService.cs` / `GameService.cs` — 8 new methods:**
+- `CreateGameAsync` — validates sport exists, creates game + any initial periods
+- `UpdateGameAsync` — blocks edits on Final/Cancelled games
+- `UpdateGameStatusAsync` — unrestricted status transition
+- `DeleteGameAsync` — blocks in-progress games and games with wagers (checks across all periods)
+- `AddPeriodAsync` — blocks on Final/Cancelled game
+- `RemovePeriodAsync` — blocks if period has wagers
+- `CreateSportTypeAsync` — enforces unique code
+- `UpdateSportTypeAsync` — enforces unique code, allows deactivation
+
+**`GamesController.cs` — 10 endpoints:**
+
+| Method | Route | Role |
+|---|---|---|
+| GET | `/api/games` | Any auth |
+| GET | `/api/games/{id}` | Any auth |
+| GET | `/api/games/sports?includeInactive` | Any auth |
+| POST | `/api/games` | Admin, LinesManager |
+| PUT | `/api/games/{id}` | Admin, LinesManager |
+| PATCH | `/api/games/{id}/status` | Admin, LinesManager |
+| DELETE | `/api/games/{id}` | Admin only |
+| POST | `/api/games/{id}/periods` | Admin, LinesManager |
+| DELETE | `/api/games/{id}/periods/{periodId}` | Admin, LinesManager |
+| POST | `/api/games/sports` | Admin only |
+| PUT | `/api/games/sports/{sportId}` | Admin only |
+
+**`BettingDbContext.cs`** — added `CustomerBalances` and `CustomerLimits` DbSets (required by integration tests).
+
+**Pre-existing bug fixed — `WagerService.GetLineForItem`:**
+Spread bets were using `lineSet.Spread` (the point spread value, e.g. -3.5) instead of `lineSet.SpreadJuice` (-110) for payout calculation. This caused ~3143x overbilling. Also fixed Total bets to use `OverJuice`/`UnderJuice` instead of the Total line value.
+
+**Test infrastructure fixed (`BettingService.Tests.csproj`):**
+The test project was on `net8.0` and had never successfully compiled against the `net10.0` service. Updated:
+- `TargetFramework`: `net8.0` → `net10.0`
+- `Microsoft.EntityFrameworkCore.InMemory`: `8.0.0` → `10.0.0`
+- `Microsoft.AspNetCore.Mvc.Testing`: `8.0.0` → `10.0.0`
+- `Testcontainers.*`: `3.7.0` → `4.1.0`
+- xunit: `2.6.4` → `2.9.3`
+- Added `<Using Include="Xunit" />` global using (AutoMapper 16 also required `NullLoggerFactory` as 2nd arg to `MapperConfiguration`)
+
+**`GameServiceTests.cs`** — 16 unit tests, all pass. WagerService tests: 5/5 pass.
+
+---
+
+## Service port map (updated 2026-04-10)
+
+| Service | http | https |
+|---|---|---|
+| auth-service | 5010 | 5011 |
+| accounts-service | 5020 | 5021 |
+| admin-service | 5030 | 5031 |
+| alerts-service | 5040 | 5041 |
+| betting-service | 5050 | 5051 |
+| lottery-service | 5060 | 5061 |
+| reports-service | 5070 | 5071 |
+| betting-ui | 5173 | — |
+| accounts-ui | 5174 | — |
+| admin-ui | 5175 | — |
+| lottery-ui | 5176 | — |
+| reports-ui | 5177 | — |
+| casino-service | 5080 | 5081 |
+| casino-ui | 5178 | — |
+
+---
+
+## What was built / fixed in the 2026-05-09 session
+
+### Bug fix — GameFormModal sport dropdown empty (betting-ui)
+`SportTypeResponse` DTO in `betting-service/src/Models/Responses/GameResponse.cs` was missing `IsActive` and `DisplayOrder` fields.
+The frontend `GameFormModal` filtered `sports.filter(s => s.isActive)` — with `isActive` always `undefined`, the dropdown was always empty.
+Fix: added `IsActive` and `DisplayOrder` to `SportTypeResponse`.
+
+### Bug fix — Game card shows only date, no teams (betting-ui)
+`GameSelectionPage.tsx` rendered `game.periods.map(p => { if (!lines) return null; ... })` — when no period had lines set, every period returned `null` and the card rendered nothing but the date.
+Fix: added an outer check `game.periods.every(p => !p.lines)` at the card level; renders team names + "Lines not yet available" label when no period has lines yet.
+
+### Feature — accounts-service → betting-service provisioning sync
+
+**Problem:** accounts-service saves agents/customers to `CogAccounts` DB; betting-service needs them in `COGDB_Betting` before wagers can be placed.
+
+**betting-service — new internal endpoints (`src/Controllers/InternalController.cs`):**
+- `POST /api/internal/agents` — idempotent agent provisioning; returns 200 if already exists
+- `POST /api/internal/customers` — creates Customer + CustomerBalance + CustomerLimits; looks up agent by LoginName
+- Both require `[Authorize(Roles = "Admin")]`
+- Request DTOs: `ProvisionAgentRequest.cs`, `ProvisionCustomerRequest.cs`
+
+**accounts-service — `BettingProvisioningService.cs` (same pattern as `AuthProvisioningService`):**
+- `IBettingProvisioningService` interface with `ProvisionAgentAsync` and `ProvisionCustomerAsync`
+- Authenticates with auth-service (using `Services:AuthService:ServiceAccount` credentials) to get JWT
+- Uses JWT to POST to betting-service internal endpoints
+- Non-fatal: any exception logs warning and returns without blocking local account creation
+- Registered as singleton in `ServiceCollectionExtensions.AddServiceClients()`
+- Named HttpClients: `"auth-service"` (port 5010), `"betting-service"` (port 5050)
+
+**accounts-service wiring:**
+- `AgentService.CreateAgentAsync` — calls `ProvisionAgentAsync` after `SaveChangesAsync`
+- `CustomerService.CreateCustomerAsync` — calls `ProvisionCustomerAsync` after `SaveChangesAsync`
+
+**Config added to `appsettings.json`:**
+```json
+"Services": {
+  "AuthService": {
+    "BaseUrl": "http://localhost:5010",
+    "ServiceAccount": { "Username": "admin", "Password": "REPLACE_WITH_ADMIN_PASSWORD" }
+  },
+  "BettingService": { "BaseUrl": "http://localhost:5050" }
+}
+```
+Dev password (`Admin123!`) is in `appsettings.Development.json`.
+
+Both services build with 0 errors, 0 warnings.
+
+### Task #18 — Wager grading endpoint (betting-service) — complete
+
+**New endpoints:**
+- `POST /api/games/{id}/grade` — grades a game by accepting per-period scores; requires `Admin` or `LinesManager` role
+  - Marks game status `Final`
+  - Grades each pending `WagerItem` (Won/Lost/Push/NoAction) based on scores + line type
+  - Grades parent `Wager` (Won/Lost/Push) — multi-game parlays stay `Pending` until all legs resolved
+  - Returns `GradeGameResponse` with counts and total payout
+- `GET /api/wagers/graded?agentId=&gameId=&page=&pageSize=` — returns all Won/Lost/Push wagers for LinesManager graded view
+
+**New files:**
+- `src/Models/Requests/GradeGameRequest.cs` — `{ periodScores: [{ periodId, homeScore, awayScore }] }`
+- `src/Models/Responses/GradeGameResponse.cs` — `{ gameId, wagersGraded, wagersWon, wagersLost, wagersPushed, totalPayout }`
+- `src/Services/WagerGradingEngine.cs` — pure static grading logic (`internal` for unit-testability)
+- `src/AssemblyInfo.cs` — `[assembly: InternalsVisibleTo("BettingService.Tests")]`
+
+**Grading logic (`WagerGradingEngine`):**
+- **Spread**: `coverMargin = homeScore - awayScore + spread`; `> 0` → home covered, `< 0` → away covered, `= 0` → push
+- **MoneyLine**: winner by score diff; tie → push
+- **Total**: combined score vs total line; over/under/push
+- **Straight payout**: Won = risk + win; Push = risk; Lost = 0
+- **Parlay payout**: compound product of American-to-decimal odds for winning legs; push legs excluded; any loss = 0; all push = return stake
+
+**`WagerResponse`** — added `GradedBy` field.
+
+**Tests:** 20 new unit tests in `tests/WagerGradingEngineTests.cs` — all pass.
+All enum values corrected from exploration-agent-reported values to actual domain values (`WagerStatus.Won/Lost/Push/NoAction`, `WagerItemStatus.Won/Lost/Push/NoAction`).
+
+---
+
+## What was built / fixed in the 2026-07-15 session
+
+### Test project modernization — admin-service, accounts-service, alerts-service, lottery-service, reports-service
+
+Applied the same `net10.0` test-project fix previously used for betting-service (2026-04-18 session) to the remaining five services. Verified with a clean `dotnet build` + `dotnet test` pass on all five:
+
+| Service | Build | Unit tests |
+|---|---|---|
+| admin-service | 0 errors, 0 warnings | 17/17 passed |
+| accounts-service | 0 errors, 0 warnings | 28/28 passed |
+| alerts-service | 0 errors, 0 warnings | 19/19 passed |
+| lottery-service | 0 errors, 0 warnings | 16/16 passed |
+| reports-service | 0 errors, 0 warnings | 7/7 passed |
+
+Total: 87 unit tests passing across the five services (integration tests excluded from this run — they require Testcontainers/Docker).
+
+**New/updated test files:**
+- `admin-service/tests/Unit/UserServiceTests.cs` — 10 tests
+- `alerts-service/tests/Unit/AlertDataServiceTests.cs` — 11 tests
+- `accounts-service/tests/Unit/CustomerServiceTests.cs` — 12 tests
+- `accounts-service/tests/Unit/AgentServiceTests.cs` — 8 tests
+- `accounts-service/tests/Integration/AccountsIntegrationTests.cs` — 8 tests (Testcontainers)
+- `lottery-service/tests/Unit/LotteryServiceTests.cs` — 9 tests
+- `lottery-service/tests/Integration/LotteryIntegrationTests.cs` — 8 tests (Testcontainers)
+
+**csproj changes** (`admin-service`, `accounts-service`, `alerts-service`, `lottery-service`, `reports-service` — all under `tests/`):
+- `TargetFramework`: aligned to `net10.0`
+- `Microsoft.EntityFrameworkCore.InMemory` → `10.0.0`
+- `Microsoft.AspNetCore.Mvc.Testing` → `10.0.0`
+- `Testcontainers.MsSql` → `4.1.0`
+- accounts-service additionally moved to the newer xunit/FluentAssertions/NSubstitute stack (xunit `2.9.3`, `xunit.runner.visualstudio` `3.0.1`, `FluentAssertions` `7.2.0`, `NSubstitute` `5.3.0`, `Microsoft.NET.Test.Sdk` `17.12.0`) — admin-service/alerts-service/lottery-service/reports-service remain on the Moq-based stack (xunit `2.6.2`, `Moq` `4.20.69`, `Microsoft.NET.Test.Sdk` `17.8.0`)
+
+### betting-ui — `package-lock.json` refreshed
+Lockfile regenerated via `npm install`; no dependency version changes (still `@vitest/ui ^3.2.4` matching `vitest ^3.2.4`).
+
+---
+
+## What was fixed in the 2026-07-16 session — running integration tests against Docker
+
+Ran the Testcontainers-backed integration suites (auth, admin, accounts, alerts, betting, lottery — the six services with an `Integration` test folder) against a real Docker daemon for the first time. All 48 tests failed. Root-caused and fixed multiple distinct bugs, in order of discovery:
+
+### Bug 1 — every fixture pointed EF Core at `master`, not a real test database
+`MsSqlContainer.GetConnectionString()` returns a connection string with no `Initial Catalog`, so EF Core treated `master` as the application database. `ResetDatabaseAsync()`'s `EnsureDeletedAsync()` then tried `ALTER DATABASE master SET SINGLE_USER` to drop it, which SQL Server refuses outright (`Option 'SINGLE_USER' cannot be set in database 'master'`) — every test failed before any app code ran.
+
+**Fix** — added a `GetTestConnectionString()` helper to each of the 6 fixtures that rebuilds the connection string with an explicit `InitialCatalog` (`AccountsServiceTest`, `AdminServiceTest`, `AlertsServiceTest`, `AuthServiceTest`, `BettingServiceTest`, `LotteryServiceTest`) via `SqlConnectionStringBuilder`, and used it in place of the raw `_sql.GetConnectionString()` call in `ConfigureWebHost`. Files: `{accounts,admin,alerts,auth,betting,lottery}-service/tests/Integration/*IntegrationTests.cs`.
+
+Re-running after this fix moved several services from 0/N passing to partial passes, confirming the bug and surfacing the real bugs underneath it (below). auth-service's first re-run still showed 0/9, but that turned out to be Docker/Testcontainers API contention from running multiple `dotnet test` invocations against Docker at the same time — resolved by not running Testcontainers suites concurrently.
+
+### Bug 2 — lottery-service: EF migration had drifted completely from the entity model
+`DrawingDetails`, `LotteryTickets` etc. as defined in `20260409120000_InitialCreate.cs` used an entirely different shape than the current entities (e.g. migration had `DrawingTime`/`CutoffTime`/`IsOpen`/`IsDrawn`/`WinningNumbers` and `int` keys; entities now have `DrawingDate`/`MinutesToDraw`/`IsActive` and `long` keys). Every insert failed with `Invalid column name`.
+
+**Fix** — deleted the stale migration + model snapshot and regenerated from the current model:
+```
+dotnet ef migrations add InitialCreate --project src --startup-project src -o Migrations
+```
+New migration: `lottery-service/src/Migrations/20260716181336_InitialCreate.cs`. (Global `dotnet-ef` tool is v8.0.26 vs the project's EF Core 10.0.0 — works with a version-mismatch warning; consider `dotnet tool update -g dotnet-ef` in a future session.)
+
+### Bug 3 — betting-service: seed data violated IDENTITY_INSERT
+`BettingApiFactory.ResetDatabaseAsync()` inserts a base `Agent` with an explicit `Id = 1` (required for customer FK references throughout the tests), but `Agents.Id` is an IDENTITY column — every test failed at seed time with `Cannot insert explicit value for identity column`.
+
+**Fix** — wrapped the seed insert in a transaction with `SET IDENTITY_INSERT [Agents] ON` / `OFF` around `SaveChangesAsync()`. File: `betting-service/tests/Integration/WagersIntegrationTests.cs`.
+
+### Bug 4 — no service actually implemented the test auth bypass
+Every fixture sent `Authorization: Bearer test-bypass-token`, but grepping all `Program.cs` files confirmed **no service has any `Testing`-environment auth handling** — `test-bypass-token` is not a valid JWT, so real JWT-bearer validation rejected it and most authenticated endpoints returned 401. betting-service's fixture already had a `GenerateTestJwt()` stub with a comment describing the intended design ("services should accept a well-known test token") but it just returned the same literal string.
+
+**Fix** — since all 5 non-auth services share the same dev JWT secret/issuer/audience (`appsettings.json` → `Jwt:SecretKey = 6UZhMYYN1EqSmi7rtNvpRBS46WsNbVuYZwXzNft7h8c=`, `Issuer = cog-auth-service`, `Audience = cog-services`), replaced the fake token with a real `JwtSecurityToken` minted in each fixture, matching the claim shape `AuthService.Services.TokenService` actually issues (`sub`, `jti`, `login_name`, `user_type`, `domain_id`, `ClaimTypes.Role` per role, `permission` per permission):
+- **accounts-service** — roles `Admin`, `MasterAgent`, `Agent`
+- **admin-service** — role `Admin` + permissions `Users.Manage`, `Roles.Manage`, `System.Config` (matches its `RequireClaim("permission", ...)` policies)
+- **alerts-service** — role `Admin`; also added `AccessTokenProvider` to the SignalR `HubConnectionBuilder` in `SignalR_CanConnect` (the hub is `[Authorize]` and the server already supports token-via-query-string for `/hubs/*`, it just wasn't being sent)
+- **betting-service** — roles `Admin`, `LinesManager`, `domain_id`/`login_name` = the seeded base agent (matches `ICurrentUser`)
+- **lottery-service** — added `customerId`/`agentId` claims (not `domain_id`) since `TicketsController` reads those specific claim names directly via `User.FindFirstValue`
+
+Files: `GenerateTestJwt()` added to each `*ApiFactory` class in the same 5 `*IntegrationTests.cs` files as Bug 1.
+
+### Bug 5 — alerts-service: tests expected endpoints that don't exist
+- `POST /api/alerts` (plain create) — controller only had `POST /api/alerts/broadcast` (SignalR broadcast) and `POST /api/alerts/unalert/{customerId}`. No endpoint persisted a new alert.
+- `DELETE /api/alerts/{id}` (dismiss) — no delete endpoint existed at all.
+- `GET /api/alerts/vip-settings/{agentId}` — test hit a URL that never existed; the real route is `GET /api/alerts/vip/{agentId}`.
+
+**Fix**:
+- Added `CreateAlertRequest` DTO (`Models/AlertTicketDto.cs`), `CreateAlertAsync`/`DismissAlertAsync` on `IAlertDataService`/`AlertDataService` (insert/remove an `AlertTicket` row), and `[HttpPost]`/`[HttpDelete("{id:int}")]` actions on `AlertsController`.
+- Fixed the test's VIP-settings URL to `/api/alerts/vip/1` (test-side fix, matching the real route).
+
+### Bug 6 — admin-service: test used PATCH, controller only supports PUT
+`UpdateUser_ValidRequest_Returns200` called `PatchAsJsonAsync`; `UsersController.UpdateUser` is `[HttpPut("{id:int}")]`. Fixed the test to use `PutAsJsonAsync` (test-side fix — PUT is the correct, already-implemented verb).
+
+### Bug 7 — lottery-service: test assumed a customer-scoped ticket-list route that doesn't exist
+`GetCustomerTickets_Returns200` queried `GET /api/lottery/tickets/{customerId}`, but `TicketsController` only has `GET /api/lottery/tickets/{id:long}` (single ticket by ticket ID) and `GET /api/lottery/tickets/my` (claims-based, using the `customerId` JWT claim). The test would have accidentally hit the single-ticket route and failed. Rewrote the test to purchase a ticket and then call `/api/lottery/tickets/my`, matching the actual claims-based design (and no longer sends the now-irrelevant `CustomerId` in the purchase body).
+
+### Status at time of writing
+Full integration re-run (all 6 services, all fixes applied) was kicked off and had not finished by the end of this note update — see next session's notes (or `dotnet test` locally) for final pass/fail counts.
+
+---

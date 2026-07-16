@@ -1,0 +1,515 @@
+name: .NET Services CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'modernization/shared/domain/**'
+      - 'modernization/auth-service/**'
+      - 'modernization/betting-service/**'
+      - 'modernization/accounts-service/**'
+      - 'modernization/admin-service/**'
+      - 'modernization/alerts-service/**'
+      - 'modernization/lottery-service/**'
+      - 'modernization/reports-service/**'
+  pull_request:
+    # Run tests on ALL pull requests to main/develop regardless of path — per project policy
+    branches: [main, develop]
+
+env:
+  REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      auth:     ${{ steps.filter.outputs.auth }}
+      betting:  ${{ steps.filter.outputs.betting }}
+      accounts: ${{ steps.filter.outputs.accounts }}
+      admin:    ${{ steps.filter.outputs.admin }}
+      alerts:   ${{ steps.filter.outputs.alerts }}
+      lottery:  ${{ steps.filter.outputs.lottery }}
+      reports:  ${{ steps.filter.outputs.reports }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            auth:     ['modernization/auth-service/**', 'modernization/shared/domain/**']
+            betting:  ['modernization/betting-service/**', 'modernization/shared/domain/**']
+            accounts: ['modernization/accounts-service/**', 'modernization/shared/domain/**']
+            admin:    ['modernization/admin-service/**', 'modernization/shared/domain/**']
+            alerts:   ['modernization/alerts-service/**', 'modernization/shared/domain/**']
+            lottery:  ['modernization/lottery-service/**', 'modernization/shared/domain/**']
+            reports:  ['modernization/reports-service/**', 'modernization/shared/domain/**']
+
+  build-test-auth:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.auth == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Restore
+        run: dotnet restore auth-service/AuthService.sln
+      - name: Build
+        run: dotnet build auth-service/AuthService.sln --no-restore -c Release
+      - name: Test
+        run: dotnet test auth-service/AuthService.sln --no-build -c Release --collect:"XPlat Code Coverage" --results-directory coverage
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: auth-coverage
+          path: modernization/coverage
+
+  build-push-auth:
+    needs: build-test-auth
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push Docker image
+        working-directory: modernization
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::8}
+          docker build -t $REGISTRY/cog/auth-service:$IMAGE_TAG -f auth-service/Dockerfile .
+          docker push $REGISTRY/cog/auth-service:$IMAGE_TAG
+          docker tag $REGISTRY/cog/auth-service:$IMAGE_TAG $REGISTRY/cog/auth-service:latest
+          docker push $REGISTRY/cog/auth-service:latest
+
+  deploy-auth-dev:
+    needs: build-push-auth
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name cog-dev-cluster --region ${{ secrets.AWS_REGION }}
+      - name: Deploy to EKS
+        working-directory: modernization/auth-service/k8s
+        run: |
+          export ECR_REGISTRY=$REGISTRY
+          export IMAGE_TAG=${GITHUB_SHA::8}
+          envsubst < deployment.yaml | kubectl apply -f -
+          kubectl rollout status deployment/auth-service -n cog --timeout=300s
+
+  build-test-betting:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.betting == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Restore
+        run: dotnet restore betting-service/BettingService.sln
+      - name: Build
+        run: dotnet build betting-service/BettingService.sln --no-restore -c Release
+      - name: Test
+        run: dotnet test betting-service/BettingService.sln --no-build -c Release --collect:"XPlat Code Coverage" --results-directory coverage
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: betting-coverage
+          path: modernization/coverage
+
+  build-push-betting:
+    needs: build-test-betting
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push Docker image
+        working-directory: modernization
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::8}
+          docker build -t $REGISTRY/cog/betting-service:$IMAGE_TAG -f betting-service/Dockerfile .
+          docker push $REGISTRY/cog/betting-service:$IMAGE_TAG
+          docker tag $REGISTRY/cog/betting-service:$IMAGE_TAG $REGISTRY/cog/betting-service:latest
+          docker push $REGISTRY/cog/betting-service:latest
+
+  deploy-betting-dev:
+    needs: build-push-betting
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name cog-dev-cluster --region ${{ secrets.AWS_REGION }}
+      - name: Deploy to EKS
+        working-directory: modernization/betting-service/k8s
+        run: |
+          export ECR_REGISTRY=$REGISTRY
+          export IMAGE_TAG=${GITHUB_SHA::8}
+          envsubst < deployment.yaml | kubectl apply -f -
+          kubectl rollout status deployment/betting-service -n cog --timeout=300s
+
+  build-test-accounts:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.accounts == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Restore
+        run: dotnet restore accounts-service/AccountsService.sln
+      - name: Build
+        run: dotnet build accounts-service/AccountsService.sln --no-restore -c Release
+      - name: Test
+        run: dotnet test accounts-service/AccountsService.sln --no-build -c Release --collect:"XPlat Code Coverage" --results-directory coverage
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: accounts-coverage
+          path: modernization/coverage
+
+  build-push-accounts:
+    needs: build-test-accounts
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push Docker image
+        working-directory: modernization
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::8}
+          docker build -t $REGISTRY/cog/accounts-service:$IMAGE_TAG -f accounts-service/Dockerfile .
+          docker push $REGISTRY/cog/accounts-service:$IMAGE_TAG
+          docker tag $REGISTRY/cog/accounts-service:$IMAGE_TAG $REGISTRY/cog/accounts-service:latest
+          docker push $REGISTRY/cog/accounts-service:latest
+
+  deploy-accounts-dev:
+    needs: build-push-accounts
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name cog-dev-cluster --region ${{ secrets.AWS_REGION }}
+      - name: Deploy to EKS
+        working-directory: modernization/accounts-service/k8s
+        run: |
+          export ECR_REGISTRY=$REGISTRY
+          export IMAGE_TAG=${GITHUB_SHA::8}
+          envsubst < deployment.yaml | kubectl apply -f -
+          kubectl rollout status deployment/accounts-service -n cog --timeout=300s
+
+  build-test-alerts:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.alerts == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Restore
+        run: dotnet restore alerts-service/AlertsService.sln
+      - name: Build
+        run: dotnet build alerts-service/AlertsService.sln --no-restore -c Release
+      - name: Test
+        run: dotnet test alerts-service/AlertsService.sln --no-build -c Release --collect:"XPlat Code Coverage" --results-directory coverage
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: alerts-coverage
+          path: modernization/coverage
+
+  build-push-alerts:
+    needs: build-test-alerts
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push Docker image
+        working-directory: modernization
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::8}
+          docker build -t $REGISTRY/cog/alerts-service:$IMAGE_TAG -f alerts-service/Dockerfile .
+          docker push $REGISTRY/cog/alerts-service:$IMAGE_TAG
+          docker tag $REGISTRY/cog/alerts-service:$IMAGE_TAG $REGISTRY/cog/alerts-service:latest
+          docker push $REGISTRY/cog/alerts-service:latest
+
+  deploy-alerts-dev:
+    needs: build-push-alerts
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name cog-dev-cluster --region ${{ secrets.AWS_REGION }}
+      - name: Deploy to EKS
+        working-directory: modernization/alerts-service/k8s
+        run: |
+          export ECR_REGISTRY=$REGISTRY
+          export IMAGE_TAG=${GITHUB_SHA::8}
+          envsubst < deployment.yaml | kubectl apply -f -
+          kubectl rollout status deployment/alerts-service -n cog --timeout=300s
+
+  build-test-admin:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.admin == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Restore
+        run: dotnet restore admin-service/AdminService.sln
+      - name: Build
+        run: dotnet build admin-service/AdminService.sln --no-restore -c Release
+      - name: Test
+        run: dotnet test admin-service/AdminService.sln --no-build -c Release --collect:"XPlat Code Coverage" --results-directory coverage
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-coverage
+          path: modernization/coverage
+
+  build-push-admin:
+    needs: build-test-admin
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push Docker image
+        working-directory: modernization
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::8}
+          docker build -t $REGISTRY/cog/admin-service:$IMAGE_TAG -f admin-service/Dockerfile .
+          docker push $REGISTRY/cog/admin-service:$IMAGE_TAG
+          docker tag $REGISTRY/cog/admin-service:$IMAGE_TAG $REGISTRY/cog/admin-service:latest
+          docker push $REGISTRY/cog/admin-service:latest
+
+  deploy-admin-dev:
+    needs: build-push-admin
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name cog-dev-cluster --region ${{ secrets.AWS_REGION }}
+      - name: Deploy to EKS
+        working-directory: modernization/admin-service/k8s
+        run: |
+          export ECR_REGISTRY=$REGISTRY
+          export IMAGE_TAG=${GITHUB_SHA::8}
+          envsubst < deployment.yaml | kubectl apply -f -
+          kubectl rollout status deployment/admin-service -n cog --timeout=300s
+
+  build-test-lottery:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.lottery == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Restore
+        run: dotnet restore lottery-service/LotteryService.sln
+      - name: Build
+        run: dotnet build lottery-service/LotteryService.sln --no-restore -c Release
+      - name: Test
+        run: dotnet test lottery-service/LotteryService.sln --no-build -c Release --collect:"XPlat Code Coverage" --results-directory coverage
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: lottery-coverage
+          path: modernization/coverage
+
+  build-push-lottery:
+    needs: build-test-lottery
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push Docker image
+        working-directory: modernization
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::8}
+          docker build -t $REGISTRY/cog/lottery-service:$IMAGE_TAG -f lottery-service/Dockerfile .
+          docker push $REGISTRY/cog/lottery-service:$IMAGE_TAG
+          docker tag $REGISTRY/cog/lottery-service:$IMAGE_TAG $REGISTRY/cog/lottery-service:latest
+          docker push $REGISTRY/cog/lottery-service:latest
+
+  deploy-lottery-dev:
+    needs: build-push-lottery
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name cog-dev-cluster --region ${{ secrets.AWS_REGION }}
+      - name: Deploy to EKS
+        working-directory: modernization/lottery-service/k8s
+        run: |
+          export ECR_REGISTRY=$REGISTRY
+          export IMAGE_TAG=${GITHUB_SHA::8}
+          envsubst < deployment.yaml | kubectl apply -f -
+          kubectl rollout status deployment/lottery-service -n cog --timeout=300s
+
+  build-test-reports:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.reports == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Restore
+        run: dotnet restore reports-service/ReportsService.sln
+      - name: Build
+        run: dotnet build reports-service/ReportsService.sln --no-restore -c Release
+      - name: Test
+        run: dotnet test reports-service/ReportsService.sln --no-build -c Release --collect:"XPlat Code Coverage" --results-directory coverage
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-coverage
+          path: modernization/coverage
+
+  build-push-reports:
+    needs: build-test-reports
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Build and push Docker image
+        working-directory: modernization
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::8}
+          docker build -t $REGISTRY/cog/reports-service:$IMAGE_TAG -f reports-service/Dockerfile .
+          docker push $REGISTRY/cog/reports-service:$IMAGE_TAG
+          docker tag $REGISTRY/cog/reports-service:$IMAGE_TAG $REGISTRY/cog/reports-service:latest
+          docker push $REGISTRY/cog/reports-service:latest
+
+  deploy-reports-dev:
+    needs: build-push-reports
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Configure kubectl
+        run: aws eks update-kubeconfig --name cog-dev-cluster --region ${{ secrets.AWS_REGION }}
+      - name: Deploy to EKS
+        working-directory: modernization/reports-service/k8s
+        run: |
+          export ECR_REGISTRY=$REGISTRY
+          export IMAGE_TAG=${GITHUB_SHA::8}
+          envsubst < deployment.yaml | kubectl apply -f -
+          kubectl rollout status deployment/reports-service -n cog --timeout=300s

@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lottery-service
+  namespace: cog
+  labels:
+    app: lottery-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: lottery-service
+  template:
+    metadata:
+      labels:
+        app: lottery-service
+    spec:
+      containers:
+        - name: lottery-service
+          image: ${ECR_REGISTRY}/cog/lottery-service:${IMAGE_TAG}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: ConnectionStrings__DefaultConnection
+              valueFrom:
+                secretKeyRef:
+                  name: cog-db-secret
+                  key: lottery-connection-string
+            - name: Jwt__SecretKey
+              valueFrom:
+                secretKeyRef:
+                  name: cog-jwt-secret
+                  key: secret-key
+            - name: Jwt__Issuer
+              value: "cog-auth-service"
+            - name: Jwt__Audience
+              value: "cog-services"
+            - name: Services__Accounts
+              value: "http://accounts-service"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lottery-service
+  namespace: cog
+spec:
+  selector:
+    app: lottery-service
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: lottery-service-hpa
+  namespace: cog
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: lottery-service
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

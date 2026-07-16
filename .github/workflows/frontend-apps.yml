@@ -1,0 +1,290 @@
+name: Frontend Apps CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'modernization/betting-ui/**'
+      - 'modernization/accounts-ui/**'
+      - 'modernization/admin-ui/**'
+      - 'modernization/lottery-ui/**'
+      - 'modernization/reports-ui/**'
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      betting:  ${{ steps.filter.outputs.betting }}
+      accounts: ${{ steps.filter.outputs.accounts }}
+      admin:    ${{ steps.filter.outputs.admin }}
+      lottery:  ${{ steps.filter.outputs.lottery }}
+      reports:  ${{ steps.filter.outputs.reports }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            betting:  ['modernization/betting-ui/**']
+            accounts: ['modernization/accounts-ui/**']
+            admin:    ['modernization/admin-ui/**']
+            lottery:  ['modernization/lottery-ui/**']
+            reports:  ['modernization/reports-ui/**']
+
+  build-test-betting-ui:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.betting == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization/betting-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: modernization/betting-ui/package-lock.json
+      - run: npm ci
+      - name: Type check
+        run: npm run type-check
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm run test:coverage
+      - name: Build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: betting-ui-dist
+          path: modernization/betting-ui/dist
+
+  deploy-betting-ui-dev:
+    needs: build-test-betting-ui
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: betting-ui-dist
+          path: dist
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Deploy to S3
+        run: |
+          aws s3 sync dist/ s3://${{ secrets.BETTING_UI_BUCKET_DEV }} --delete
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.BETTING_UI_CF_ID_DEV }} \
+            --paths "/*"
+
+  build-test-accounts-ui:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.accounts == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization/accounts-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: modernization/accounts-ui/package-lock.json
+      - run: npm ci
+      - name: Type check
+        run: npm run type-check
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm run test:coverage
+      - name: Build
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: accounts-ui-dist
+          path: modernization/accounts-ui/dist
+
+  deploy-accounts-ui-dev:
+    needs: build-test-accounts-ui
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: accounts-ui-dist
+          path: dist
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Deploy to S3
+        run: |
+          aws s3 sync dist/ s3://${{ secrets.ACCOUNTS_UI_BUCKET_DEV }} --delete
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.ACCOUNTS_UI_CF_ID_DEV }} \
+            --paths "/*"
+
+  build-test-admin-ui:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.admin == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization/admin-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: modernization/admin-ui/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Type check
+        run: npm run type-check
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: admin-ui-dist
+          path: modernization/admin-ui/dist
+
+  deploy-admin-ui-dev:
+    needs: build-test-admin-ui
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: admin-ui-dist
+          path: dist
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Deploy to S3
+        run: |
+          aws s3 sync dist/ s3://${{ secrets.ADMIN_UI_BUCKET_DEV }} --delete
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.ADMIN_UI_CF_ID_DEV }} \
+            --paths "/*"
+
+  build-test-lottery-ui:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.lottery == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization/lottery-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: modernization/lottery-ui/package.json
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lottery-ui-dist
+          path: modernization/lottery-ui/dist
+
+  deploy-lottery-ui-dev:
+    needs: build-test-lottery-ui
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: lottery-ui-dist
+          path: dist
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Deploy to S3
+        run: |
+          aws s3 sync dist/ s3://${{ secrets.LOTTERY_UI_BUCKET_DEV }} --delete
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.LOTTERY_UI_CF_ID_DEV }} \
+            --paths "/*"
+
+  build-test-reports-ui:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.reports == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modernization/reports-ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: modernization/reports-ui/package.json
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-ui-dist
+          path: modernization/reports-ui/dist
+
+  deploy-reports-ui-dev:
+    needs: build-test-reports-ui
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: reports-ui-dist
+          path: dist
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+      - name: Deploy to S3
+        run: |
+          aws s3 sync dist/ s3://${{ secrets.REPORTS_UI_BUCKET_DEV }} --delete
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.REPORTS_UI_CF_ID_DEV }} \
+            --paths "/*"
