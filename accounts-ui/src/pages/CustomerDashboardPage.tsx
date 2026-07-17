@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { getCustomer, getTransactionsByCustomer } from '../api/accountsApi';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  activateCustomer,
+  getCustomer,
+  getTransactionsByCustomer,
+  suspendCustomer,
+} from '../api/accountsApi';
+import { useAuthStore } from '../stores/authStore';
 import PersonalTab from './customer-tabs/PersonalTab';
 import LimitsTab from './customer-tabs/LimitsTab';
 import TransactionsTab from './customer-tabs/TransactionsTab';
@@ -15,11 +21,23 @@ export default function CustomerDashboardPage() {
   const { id }         = useParams<{ id: string }>();
   const customerId     = parseInt(id ?? '0', 10);
   const [activeTab, setActiveTab] = useState<Tab>('personal');
+  const qc        = useQueryClient();
+  const loginName = useAuthStore((s) => s.loginName) ?? 'system';
 
   const { data: customer, isLoading } = useQuery({
     queryKey: ['customer', customerId],
     queryFn:  () => getCustomer(customerId),
     enabled:  customerId > 0,
+  });
+
+  const suspendMutation = useMutation({
+    mutationFn: () => suspendCustomer(customerId, loginName),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['customer', customerId] }),
+  });
+
+  const activateMutation = useMutation({
+    mutationFn: () => activateCustomer(customerId, loginName),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['customer', customerId] }),
   });
 
   const { data: transactions } = useQuery({
@@ -43,20 +61,39 @@ export default function CustomerDashboardPage() {
   return (
     <div>
       {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-1">
-          <h1 className="text-xl font-semibold text-gray-800">{customer.loginName}</h1>
-          <span
-            className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-              customer.status === 'Active'
-                ? 'bg-green-100 text-green-800'
-                : 'bg-red-100 text-red-700'
-            }`}
-          >
-            {customer.status}
-          </span>
+      <div className="mb-6 flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="text-xl font-semibold text-gray-800">{customer.loginName}</h1>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                customer.status === 'Active'
+                  ? 'bg-green-100 text-green-800'
+                  : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {customer.status}
+            </span>
+          </div>
+          <p className="text-sm text-gray-500">Agent: {customer.agentLoginName}</p>
         </div>
-        <p className="text-sm text-gray-500">Agent: {customer.agentLoginName}</p>
+        {customer.status === 'Active' ? (
+          <button
+            onClick={() => suspendMutation.mutate()}
+            disabled={suspendMutation.isPending}
+            className="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+          >
+            {suspendMutation.isPending ? 'Suspending…' : 'Suspend Customer'}
+          </button>
+        ) : (
+          <button
+            onClick={() => activateMutation.mutate()}
+            disabled={activateMutation.isPending}
+            className="px-4 py-2 text-sm font-medium bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+          >
+            {activateMutation.isPending ? 'Activating…' : 'Activate Customer'}
+          </button>
+        )}
       </div>
 
       {/* Balance summary cards */}

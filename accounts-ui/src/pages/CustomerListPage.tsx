@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { getCustomersByAgent } from '../api/accountsApi';
+import { getCustomers, getCustomersByAgent } from '../api/accountsApi';
 import { useAuthStore } from '../stores/authStore';
 import type { Customer } from '../types/accounts';
 
@@ -20,13 +20,20 @@ function StatusBadge({ status }: { status: Customer['status'] }) {
 
 export default function CustomerListPage() {
   const agentId = useAuthStore((s) => s.agentId) ?? 0;
+  const roles   = useAuthStore((s) => s.roles);
+  const canSeeAllCustomers = roles.includes('Admin') || roles.includes('MasterAgent');
+
   const [page, setPage]     = useState(1);
+  const [search, setSearch] = useState('');
   const pageSize            = 25;
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['customers', agentId, page],
-    queryFn:  () => getCustomersByAgent(agentId, page, pageSize),
-    enabled:  agentId > 0,
+    queryKey: canSeeAllCustomers ? ['customers', 'all', search, page] : ['customers', agentId, page],
+    queryFn:  () =>
+      canSeeAllCustomers
+        ? getCustomers(search, page, pageSize)
+        : getCustomersByAgent(agentId, page, pageSize),
+    enabled:  canSeeAllCustomers || agentId > 0,
   });
 
   return (
@@ -41,6 +48,16 @@ export default function CustomerListPage() {
         </Link>
       </div>
 
+      {canSeeAllCustomers && (
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          placeholder="Search by login name..."
+          className="w-full max-w-sm mb-4 border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 focus:outline-none"
+        />
+      )}
+
       {isLoading && (
         <p className="text-sm text-gray-500">Loading...</p>
       )}
@@ -49,7 +66,11 @@ export default function CustomerListPage() {
         <p className="text-sm text-red-500">Failed to load customers.</p>
       )}
 
-      {data && (
+      {data && data.items.length === 0 && (
+        <p className="text-sm text-gray-500">No customers found.</p>
+      )}
+
+      {data && data.items.length > 0 && (
         <>
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <table className="w-full text-sm">

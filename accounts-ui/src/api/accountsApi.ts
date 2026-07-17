@@ -27,6 +27,7 @@ import type {
   UpdateCreditLimitRequest,
   UpdateCustomerCasinoLimitsRequest,
   UpdateCustomerPermissionsRequest,
+  UpdateCustomerRequest,
   UpdateCustomerWagerLimitsRequest,
 } from '../types/accounts';
 import apiClient from './client';
@@ -48,6 +49,16 @@ export const getCustomersByAgent = (agentId: number, page = 1, pageSize = 25) =>
       params: { page, pageSize },
     })
     .then((r) => r.data);
+
+export const getCustomers = (search = '', page = 1, pageSize = 25) =>
+  apiClient
+    .get<PagedResult<Customer>>('/customers', {
+      params: { search: search || undefined, page, pageSize },
+    })
+    .then((r) => r.data);
+
+export const updateCustomer = (id: number, request: UpdateCustomerRequest) =>
+  apiClient.put<Customer>(`/customers/${id}`, request).then((r) => r.data);
 
 export const updateCreditLimits = (id: number, request: UpdateCreditLimitRequest) =>
   apiClient.put<Customer>(`/customers/${id}/credit-limits`, request).then((r) => r.data);

@@ -31,6 +31,18 @@ public class CustomersController(ICustomerService customerService) : ControllerB
         return CreatedAtAction(nameof(GetCustomer), new { id = result.Value!.Id }, result.Value);
     }
 
+    [HttpGet]
+    [Authorize(Roles = "Admin,MasterAgent")]
+    public async Task<IActionResult> GetCustomers(
+        [FromQuery] string? search,
+        [FromQuery] int page     = 1,
+        [FromQuery] int pageSize = 25,
+        CancellationToken ct     = default)
+    {
+        var result = await customerService.GetCustomersAsync(search, page, pageSize, ct);
+        return Ok(result.Value);
+    }
+
     [HttpGet("{id:int}")]
     public async Task<IActionResult> GetCustomer(int id, CancellationToken ct)
     {
