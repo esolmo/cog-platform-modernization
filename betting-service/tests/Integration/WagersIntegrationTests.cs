@@ -72,7 +72,7 @@ public class WagersIntegrationTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.Created);
         var body = await response.Content.ReadFromJsonAsync<WagerResponse>();
         body!.RiskAmount.Should().Be(110m);
-        body.Status.Should().Be(1); // Pending
+        body.Status.Should().Be("Pending");
     }
 
     [Fact]
@@ -155,7 +155,7 @@ public class WagersIntegrationTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    private record WagerResponse(int Id, decimal RiskAmount, decimal WinAmount, int Status, int WagerType);
+    private record WagerResponse(int Id, decimal RiskAmount, decimal WinAmount, string Status, string WagerType);
 }
 
 [CollectionDefinition("Betting Integration")]

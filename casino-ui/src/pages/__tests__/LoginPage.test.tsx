@@ -38,7 +38,7 @@ describe('LoginPage', () => {
 
   it('navigates to /casino on successful login', async () => {
     mockedAxios.post = vi.fn().mockResolvedValueOnce({
-      data: { accessToken: 'tok', loginName: 'alice', customerId: 'C1' },
+      data: { accessToken: 'tok', loginName: 'alice', domainEntityId: 42 },
     })
 
     renderPage()
@@ -47,13 +47,15 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/casino', { replace: true }))
+    expect(mockedAxios.post).toHaveBeenCalledWith('/api/auth/login', { loginName: 'alice', password: 'pw' })
     expect(useAuthStore.getState().loginName).toBe('alice')
+    expect(useAuthStore.getState().customerId).toBe('42')
   })
 
   it('shows error on failed login', async () => {
     const err = Object.assign(new Error('Unauthorized'), {
       isAxiosError: true,
-      response: { data: { error: 'Invalid credentials' }, status: 401 },
+      response: { data: { title: 'Authentication failed', detail: 'Invalid credentials' }, status: 401 },
     })
     mockedAxios.post = vi.fn().mockRejectedValueOnce(err)
     mockedAxios.isAxiosError = vi.fn().mockReturnValue(true)

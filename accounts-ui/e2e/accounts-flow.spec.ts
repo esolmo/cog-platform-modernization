@@ -96,7 +96,7 @@ test.describe('Customer dashboard', () => {
     await expect(page.getByText('Credit Limit')).toBeVisible()
     await expect(page.getByText('Current Balance')).toBeVisible()
     await expect(page.getByText('Available')).toBeVisible()
-    await expect(page.getByText('Free Play')).toBeVisible()
+    await expect(page.locator('p', { hasText: 'Free Play' })).toBeVisible()
   })
 
   test('Personal tab is active by default', async ({ page }) => {
@@ -109,7 +109,7 @@ test.describe('Customer dashboard', () => {
   test('clicking Limits tab shows limits content', async ({ page }) => {
     await page.getByRole('button', { name: 'Limits' }).click()
     // LimitsTab renders at least a section heading or wager limit label
-    await expect(page.getByText(/wager limit/i)).toBeVisible({ timeout: 3000 })
+    await expect(page.getByText('Wager Limit', { exact: true })).toBeVisible({ timeout: 3000 })
   })
 
   test('clicking Transactions tab shows transaction form', async ({ page }) => {

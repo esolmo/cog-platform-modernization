@@ -44,7 +44,7 @@ const mockBalance: CasinoBalance = {
 }
 
 describe('CasinoLobbyPage', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => vi.restoreAllMocks())
 
   it('renders balance cards when session and balance load', async () => {
     vi.spyOn(casinoApiModule.casinoApi, 'getSession').mockResolvedValueOnce(mockSession)
@@ -53,8 +53,8 @@ describe('CasinoLobbyPage', () => {
     renderPage(makeClient())
 
     await waitFor(() => expect(screen.getByText('Welcome, Alice')).toBeInTheDocument())
-    expect(screen.getByText('$250.00')).toBeInTheDocument()
-    expect(screen.getByText('$1,000.00') || screen.getByText('$1000.00')).toBeTruthy()
+    await waitFor(() => expect(screen.getByText('$250.00')).toBeInTheDocument())
+    expect(screen.getByText('$1000.00')).toBeInTheDocument()
   })
 
   it('renders Play Now link with lobby URL', async () => {

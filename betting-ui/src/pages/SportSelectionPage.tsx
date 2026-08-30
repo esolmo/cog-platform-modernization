@@ -22,6 +22,7 @@ export function SportSelectionPage(): React.ReactElement {
           <Link
             key={sport.id}
             to={`/sports/${sport.id}/games`}
+            data-testid="sport-card"
             className="flex items-center justify-center rounded-lg border-2 border-gray-200 bg-white p-6 text-center font-semibold text-gray-800 shadow-sm transition hover:border-blue-500 hover:bg-blue-50 hover:text-blue-700"
           >
             {sport.name}

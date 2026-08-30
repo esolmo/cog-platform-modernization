@@ -11,7 +11,7 @@ api.interceptors.request.use((config) => {
 export interface LotteryGame {
   id: number;
   name: string;
-  gameType: 1 | 2; // 1=Pick3, 2=Pick4
+  gameType: 'Pick3' | 'Pick4';
   isActive: boolean;
 }
 
@@ -45,7 +45,7 @@ export interface PickEntryDto {
   number2: number;
   number3: number;
   number4: number;
-  pickType: 1 | 2;
+  pickType: 'Straight' | 'Boxed';
   playCount: number;
   amount: number;
   cost: number;

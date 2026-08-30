@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { lotteryApi, LotteryGame } from '../api/lottery';
 
-const GAME_TYPE_LABEL: Record<number, string> = { 1: 'Pick 3', 2: 'Pick 4' };
+const GAME_TYPE_LABEL: Record<LotteryGame['gameType'], string> = { Pick3: 'Pick 3', Pick4: 'Pick 4' };
 
 export default function GamesPage() {
   const { data: games, isLoading, error } = useQuery({

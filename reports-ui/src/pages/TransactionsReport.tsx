@@ -73,8 +73,9 @@ export default function TransactionsReport() {
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <div className="grid grid-cols-3 gap-4 mb-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Agent ID</label>
+            <label htmlFor="tx-agent-id" className="block text-sm font-medium text-gray-700 mb-1">Agent ID</label>
             <input
+              id="tx-agent-id"
               type="number"
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
@@ -82,10 +83,11 @@ export default function TransactionsReport() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="tx-customer-id" className="block text-sm font-medium text-gray-700 mb-1">
               Customer ID (0 = all)
             </label>
             <input
+              id="tx-customer-id"
               type="number"
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
@@ -106,13 +108,13 @@ export default function TransactionsReport() {
         </div>
         <div className="flex gap-4 items-end">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">From</label>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+            <label htmlFor="tx-from" className="block text-sm font-medium text-gray-700 mb-1">From</label>
+            <input id="tx-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)}
               className="border border-gray-300 rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+            <label htmlFor="tx-to" className="block text-sm font-medium text-gray-700 mb-1">To</label>
+            <input id="tx-to" type="date" value={to} onChange={(e) => setTo(e.target.value)}
               className="border border-gray-300 rounded-md px-3 py-2 text-sm" />
           </div>
           <button

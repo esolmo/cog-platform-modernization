@@ -80,8 +80,9 @@ export default function AgentsReport() {
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <div className="flex gap-4 items-end flex-wrap">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Agent ID</label>
+            <label htmlFor="agents-agent-id" className="block text-sm font-medium text-gray-700 mb-1">Agent ID</label>
             <input
+              id="agents-agent-id"
               type="number"
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
@@ -89,8 +90,9 @@ export default function AgentsReport() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Search</label>
+            <label htmlFor="agents-search" className="block text-sm font-medium text-gray-700 mb-1">Search</label>
             <input
+              id="agents-search"
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

@@ -216,32 +216,32 @@ export default function UsersPage() {
             <form onSubmit={handleSubmit((d) => createMutation.mutate(d))} className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium">Username</label>
-                  <input {...register('username')} autoComplete="off" className="input mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                  <label htmlFor="create-username" className="text-sm font-medium">Username</label>
+                  <input id="create-username" {...register('username')} autoComplete="off" className="input mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                   {errors.username && <p className="text-red-500 text-xs mt-1">{errors.username.message}</p>}
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Password</label>
-                  <input type="password" {...register('password')} autoComplete="new-password" className="input mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                  <label htmlFor="create-password" className="text-sm font-medium">Password</label>
+                  <input id="create-password" type="password" {...register('password')} autoComplete="new-password" className="input mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                   {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password.message}</p>}
                 </div>
                 <div>
-                  <label className="text-sm font-medium">First name</label>
-                  <input {...register('firstName')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                  <label htmlFor="create-firstName" className="text-sm font-medium">First name</label>
+                  <input id="create-firstName" {...register('firstName')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Last name</label>
-                  <input {...register('lastName')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                  <label htmlFor="create-lastName" className="text-sm font-medium">Last name</label>
+                  <input id="create-lastName" {...register('lastName')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium">Email</label>
-                <input {...register('email')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                <label htmlFor="create-email" className="text-sm font-medium">Email</label>
+                <input id="create-email" {...register('email')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                 {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email.message}</p>}
               </div>
               <div>
-                <label className="text-sm font-medium">Access level</label>
-                <select {...register('maxAccessLevel')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm bg-white">
+                <label htmlFor="create-maxAccessLevel" className="text-sm font-medium">Access level</label>
+                <select id="create-maxAccessLevel" {...register('maxAccessLevel')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm bg-white">
                   <option value="Standard">Standard</option>
                   <option value="Supervisor">Supervisor</option>
                   <option value="Manager">Manager</option>
@@ -322,25 +322,25 @@ export default function UsersPage() {
             >
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium">First name</label>
-                  <input {...editRegister('firstName')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                  <label htmlFor="edit-firstName" className="text-sm font-medium">First name</label>
+                  <input id="edit-firstName" {...editRegister('firstName')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                   {editErrors.firstName && <p className="text-red-500 text-xs mt-1">{editErrors.firstName.message}</p>}
                 </div>
                 <div>
-                  <label className="text-sm font-medium">Last name</label>
-                  <input {...editRegister('lastName')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                  <label htmlFor="edit-lastName" className="text-sm font-medium">Last name</label>
+                  <input id="edit-lastName" {...editRegister('lastName')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                   {editErrors.lastName && <p className="text-red-500 text-xs mt-1">{editErrors.lastName.message}</p>}
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium">Email</label>
-                <input {...editRegister('email')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                <label htmlFor="edit-email" className="text-sm font-medium">Email</label>
+                <input id="edit-email" {...editRegister('email')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                 {editErrors.email && <p className="text-red-500 text-xs mt-1">{editErrors.email.message}</p>}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium">Access level</label>
-                  <select {...editRegister('maxAccessLevel')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm bg-white">
+                  <label htmlFor="edit-maxAccessLevel" className="text-sm font-medium">Access level</label>
+                  <select id="edit-maxAccessLevel" {...editRegister('maxAccessLevel')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm bg-white">
                     <option value="Standard">Standard</option>
                     <option value="Supervisor">Supervisor</option>
                     <option value="Manager">Manager</option>

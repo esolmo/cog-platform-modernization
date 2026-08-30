@@ -36,7 +36,7 @@ BEGIN
     )
         INSERT INTO DrawingDetails (LotteryGameId, Name, DrawingDate, TimeZoneId, MinutesToDraw, IsActive)
         VALUES (@Pick3Id, 'Morning Draw',
-                CAST(@DrawDate AS DATETIME2) + CAST('11:00:00' AS TIME),
+                DATEADD(DAY, DATEDIFF(DAY, 0, @DrawDate), CAST('11:00:00' AS DATETIME2)),
                 'America/New_York', 5, 1);
 
     -- Afternoon draw — 16:30 UTC
@@ -48,7 +48,7 @@ BEGIN
     )
         INSERT INTO DrawingDetails (LotteryGameId, Name, DrawingDate, TimeZoneId, MinutesToDraw, IsActive)
         VALUES (@Pick3Id, 'Afternoon Draw',
-                CAST(@DrawDate AS DATETIME2) + CAST('16:30:00' AS TIME),
+                DATEADD(DAY, DATEDIFF(DAY, 0, @DrawDate), CAST('16:30:00' AS DATETIME2)),
                 'America/New_York', 5, 1);
 
     -- Evening draw — 22:00 UTC
@@ -60,7 +60,7 @@ BEGIN
     )
         INSERT INTO DrawingDetails (LotteryGameId, Name, DrawingDate, TimeZoneId, MinutesToDraw, IsActive)
         VALUES (@Pick3Id, 'Evening Draw',
-                CAST(@DrawDate AS DATETIME2) + CAST('22:00:00' AS TIME),
+                DATEADD(DAY, DATEDIFF(DAY, 0, @DrawDate), CAST('22:00:00' AS DATETIME2)),
                 'America/New_York', 5, 1);
 
     -- Pick 4 draws same schedule
@@ -72,7 +72,7 @@ BEGIN
     )
         INSERT INTO DrawingDetails (LotteryGameId, Name, DrawingDate, TimeZoneId, MinutesToDraw, IsActive)
         VALUES (@Pick4Id, 'Midday Draw',
-                CAST(@DrawDate AS DATETIME2) + CAST('13:00:00' AS TIME),
+                DATEADD(DAY, DATEDIFF(DAY, 0, @DrawDate), CAST('13:00:00' AS DATETIME2)),
                 'America/New_York', 5, 1);
 
     IF NOT EXISTS (
@@ -83,7 +83,7 @@ BEGIN
     )
         INSERT INTO DrawingDetails (LotteryGameId, Name, DrawingDate, TimeZoneId, MinutesToDraw, IsActive)
         VALUES (@Pick4Id, 'Evening Draw',
-                CAST(@DrawDate AS DATETIME2) + CAST('22:00:00' AS TIME),
+                DATEADD(DAY, DATEDIFF(DAY, 0, @DrawDate), CAST('22:00:00' AS DATETIME2)),
                 'America/New_York', 5, 1);
 
     SET @Day = @Day + 1;

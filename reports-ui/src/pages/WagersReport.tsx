@@ -71,8 +71,9 @@ export default function WagersReport() {
       <div className="bg-white rounded-lg border border-gray-200 p-5">
         <div className="flex gap-4 items-end">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Login ID</label>
+            <label htmlFor="wagers-login-id" className="block text-sm font-medium text-gray-700 mb-1">Login ID</label>
             <input
+              id="wagers-login-id"
               type="text"
               value={loginId}
               onChange={(e) => setLoginId(e.target.value)}
@@ -81,8 +82,9 @@ export default function WagersReport() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">From</label>
+            <label htmlFor="wagers-from" className="block text-sm font-medium text-gray-700 mb-1">From</label>
             <input
+              id="wagers-from"
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
@@ -90,8 +92,9 @@ export default function WagersReport() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
+            <label htmlFor="wagers-to" className="block text-sm font-medium text-gray-700 mb-1">To</label>
             <input
+              id="wagers-to"
               type="date"
               value={to}
               onChange={(e) => setTo(e.target.value)}

@@ -5,12 +5,17 @@ import { useNavigate } from 'react-router-dom'
 import { v4 as uuidv4 } from 'uuid'
 import { bettingApi } from '@/api/bettingApi'
 import { useWagerDraftStore } from '@/stores/wagerDraftStore'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 export function WagerConfirmationPage(): React.ReactElement {
   const navigate = useNavigate()
   const { customerId, wagerType, riskAmount, items, clearDraft } = useWagerDraftStore()
   const idempotencyKey = useRef(uuidv4())
+  // A plain ref (not React state) so it's immediately visible on the very next render,
+  // even one triggered synchronously by clearDraft() before this component's own
+  // mutation.isSuccess re-render has flushed — otherwise the empty-draft redirect below
+  // can race ahead of the success navigation and send the user back to /sports.
+  const submittedRef = useRef(false)
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -26,13 +31,19 @@ export function WagerConfirmationPage(): React.ReactElement {
         })),
       }),
     onSuccess: (wager) => {
-      clearDraft()
+      submittedRef.current = true
       navigate(`/wagers/pending`, { state: { newWagerId: wager.id } })
+      clearDraft()
     },
   })
 
-  if (!customerId || items.length === 0) {
-    navigate('/sports')
+  const isEmpty = (!customerId || items.length === 0) && !submittedRef.current
+
+  useEffect(() => {
+    if (isEmpty) navigate('/sports')
+  }, [isEmpty, navigate])
+
+  if (isEmpty) {
     return <></>
   }
 

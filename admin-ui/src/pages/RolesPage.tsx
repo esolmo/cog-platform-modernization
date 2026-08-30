@@ -120,13 +120,13 @@ export default function RolesPage() {
             <h3 className="text-lg font-bold mb-5">New Role</h3>
             <form onSubmit={handleSubmit((d) => createMutation.mutate(d))} className="space-y-4">
               <div>
-                <label className="text-sm font-medium">Role name</label>
-                <input {...register('name')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                <label htmlFor="role-name" className="text-sm font-medium">Role name</label>
+                <input id="role-name" {...register('name')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                 {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
               </div>
               <div>
-                <label className="text-sm font-medium">Description</label>
-                <input {...register('description')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                <label htmlFor="role-description" className="text-sm font-medium">Description</label>
+                <input id="role-description" {...register('description')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
               </div>
 
               <div>

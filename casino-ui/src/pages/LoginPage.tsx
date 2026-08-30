@@ -8,7 +8,7 @@ import { useAuthStore } from '@/stores/authStore'
 interface LoginResponse {
   accessToken: string
   loginName: string
-  customerId: string
+  domainEntityId: number | null
 }
 
 export function LoginPage(): React.ReactElement {
@@ -26,12 +26,12 @@ export function LoginPage(): React.ReactElement {
     setLoading(true)
 
     try {
-      const { data } = await axios.post<LoginResponse>('/api/auth/login', { username, password })
-      setAuth(data.accessToken, data.loginName, data.customerId)
+      const { data } = await axios.post<LoginResponse>('/api/auth/login', { loginName: username, password })
+      setAuth(data.accessToken, data.loginName, data.domainEntityId?.toString() ?? '')
       navigate('/casino', { replace: true })
     } catch (err) {
       if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error ?? 'Login failed. Check your credentials.')
+        setError(err.response?.data?.detail ?? 'Login failed. Check your credentials.')
       } else {
         setError('An unexpected error occurred.')
       }

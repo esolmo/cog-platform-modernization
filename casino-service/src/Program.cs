@@ -2,12 +2,14 @@ using CasinoService.Configuration;
 using CasinoService.Data;
 using CasinoService.Services;
 using FluentValidation;
+using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Text;
+using System.Text.Json.Serialization;
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Debug()
@@ -60,6 +62,7 @@ try
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddScoped<ICasinoService, CasinoService.Services.CasinoService>();
     builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+    builder.Services.AddFluentValidationAutoValidation();
 
     // ── JWT authentication ─────────────────────────────────────────────────
     var jwtSection = builder.Configuration.GetSection("Jwt");
@@ -98,7 +101,8 @@ try
         .AddDbContextCheck<CasinoDbContext>("database");
 
     // ── Swagger ────────────────────────────────────────────────────────────
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(c =>
     {
@@ -181,3 +185,6 @@ static string MaskPassword(string? cs)
     return System.Text.RegularExpressions.Regex.Replace(
         cs, @"(Password|PWD)=[^;]*", "$1=***", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 }
+
+// Exposes Program to WebApplicationFactory<Program> for integration tests.
+public partial class Program { }

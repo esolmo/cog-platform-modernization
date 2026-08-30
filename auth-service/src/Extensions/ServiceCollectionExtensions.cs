@@ -2,12 +2,14 @@ using AuthService.Configuration;
 using AuthService.Data;
 using AuthService.Services;
 using FluentValidation;
+using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace AuthService.Extensions;
 
@@ -17,7 +19,8 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.AddControllers();
+        services.AddControllers()
+            .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
         services.AddEndpointsApiExplorer();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
@@ -31,6 +34,7 @@ public static class ServiceCollectionExtensions
             opts.Configuration = configuration.GetConnectionString("Redis"));
 
         services.AddValidatorsFromAssemblyContaining<Program>();
+        services.AddFluentValidationAutoValidation();
 
         services.AddScoped<ITokenService, TokenService>();
         services.AddScoped<IAuthService,  AuthService.Services.AuthService>();

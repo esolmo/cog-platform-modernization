@@ -45,10 +45,11 @@ export default function LoginPage() {
         <h1 className="text-2xl font-bold text-gray-800 mb-6">COG Accounts</h1>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="loginName" className="block text-sm font-medium text-gray-700 mb-1">
               Login Name
             </label>
             <input
+              id="loginName"
               {...register('loginName')}
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               autoComplete="username"
@@ -58,10 +59,11 @@ export default function LoginPage() {
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
               Password
             </label>
             <input
+              id="password"
               {...register('password')}
               type="password"
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"

@@ -2,11 +2,13 @@ using BettingService.Data;
 using BettingService.Services;
 using Cog.Domain.Common;
 using FluentValidation;
+using FluentValidation.AspNetCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace BettingService.Extensions;
 
@@ -16,7 +18,8 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        services.AddControllers();
+        services.AddControllers()
+            .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
         services.AddEndpointsApiExplorer();
 
         services.AddDbContext<BettingDbContext>(opts =>
@@ -30,6 +33,7 @@ public static class ServiceCollectionExtensions
             opts.Configuration = configuration.GetConnectionString("Redis"));
 
         services.AddValidatorsFromAssemblyContaining<Program>();
+        services.AddFluentValidationAutoValidation();
         services.AddAutoMapper(cfg => cfg.AddMaps(typeof(Program).Assembly));
 
         services.AddHttpContextAccessor();

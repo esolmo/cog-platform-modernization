@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import GamesPage from '../pages/GamesPage';
@@ -26,10 +26,10 @@ function renderWithProviders(ui: React.ReactElement) {
 }
 
 describe('GamesPage', () => {
-  it('renders COG Lottery heading', () => {
+  it('renders COG Lottery heading', async () => {
     vi.mocked(lotteryApiModule.lotteryApi.getGames).mockResolvedValue([]);
     renderWithProviders(<GamesPage />);
-    expect(screen.getByText('COG Lottery')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('COG Lottery')).toBeInTheDocument());
   });
 
   it('renders loading state initially', () => {
@@ -38,9 +38,9 @@ describe('GamesPage', () => {
     expect(screen.getByText(/loading games/i)).toBeInTheDocument();
   });
 
-  it('renders My Tickets navigation link', () => {
+  it('renders My Tickets navigation link', async () => {
     vi.mocked(lotteryApiModule.lotteryApi.getGames).mockResolvedValue([]);
     renderWithProviders(<GamesPage />);
-    expect(screen.getByText('My Tickets')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('My Tickets')).toBeInTheDocument());
   });
 });

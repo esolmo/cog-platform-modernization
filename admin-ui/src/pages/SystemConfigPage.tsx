@@ -147,18 +147,18 @@ export default function SystemConfigPage() {
             <h3 className="text-lg font-bold mb-5">{editItem ? 'Edit Setting' : 'New Setting'}</h3>
             <form onSubmit={handleSubmit((d) => upsertMutation.mutate(d))} className="space-y-4">
               <div>
-                <label className="text-sm font-medium">Key</label>
-                <input {...register('key')} readOnly={!!editItem} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                <label htmlFor="config-key" className="text-sm font-medium">Key</label>
+                <input id="config-key" {...register('key')} readOnly={!!editItem} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                 {errors.key && <p className="text-red-500 text-xs mt-1">{errors.key.message}</p>}
               </div>
               <div>
-                <label className="text-sm font-medium">Value {editItem?.isEncrypted && <span className="text-gray-400">(leave blank to keep current)</span>}</label>
-                <input {...register('value')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                <label htmlFor="config-value" className="text-sm font-medium">Value {editItem?.isEncrypted && <span className="text-gray-400">(leave blank to keep current)</span>}</label>
+                <input id="config-value" {...register('value')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm font-medium">Category</label>
-                  <input {...register('category')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                  <label htmlFor="config-category" className="text-sm font-medium">Category</label>
+                  <input id="config-category" {...register('category')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
                 </div>
                 <div className="flex items-end">
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
@@ -168,8 +168,8 @@ export default function SystemConfigPage() {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium">Description</label>
-                <input {...register('description')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
+                <label htmlFor="config-description" className="text-sm font-medium">Description</label>
+                <input id="config-description" {...register('description')} className="mt-1 w-full border px-3 py-2 rounded-lg text-sm" />
               </div>
               <div className="flex gap-3 pt-2">
                 <button

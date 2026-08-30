@@ -21,5 +21,6 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     pool: 'forks',
+    exclude: ['**/node_modules/**', '**/e2e/**'],
   },
 });

@@ -19,7 +19,8 @@ public class BettingMappingProfile : Profile
         CreateMap<Game, GameResponse>()
             .ForMember(d => d.SportName, o => o.MapFrom(s => s.SportType != null ? s.SportType.Name : string.Empty));
 
-        CreateMap<GamePeriod, GamePeriodResponse>();
+        CreateMap<GamePeriod, GamePeriodResponse>()
+            .ForMember(d => d.Lines, o => o.MapFrom(s => s.LineSet));
         CreateMap<LineSet, LineSetResponse>();
         CreateMap<SportType, SportTypeResponse>();
     }

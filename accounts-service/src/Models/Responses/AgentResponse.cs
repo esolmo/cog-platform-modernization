@@ -17,6 +17,12 @@ public class AgentResponse
     public bool     IsActive        { get; set; }
     public int      CustomerCount   { get; set; }
     public int      SubAgentCount   { get; set; }
+
+    /// <summary>
+    /// Only populated in the response to POST /api/agents — the auto-generated
+    /// auth-service login password for this agent. Never returned again after creation.
+    /// </summary>
+    public string?  TemporaryPassword { get; set; }
 }
 
 public class AgentHierarchyNode

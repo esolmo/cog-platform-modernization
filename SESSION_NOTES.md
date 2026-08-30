@@ -834,3 +834,106 @@ Browser automation wasn't available in this environment (Chrome extension not co
 `npx tsc --noEmit` clean on accounts-ui; `dotnet build` clean on accounts-service. Not re-run through the automated test suite (no test coverage exists for `CustomerListPage`/`PersonalTab`/`CustomerDashboardPage` yet — see "What's missing" list from the earlier recap).
 
 ---
+
+## What was built / fixed in the 2026-08-30 session — full test run on a fresh machine, first-ever E2E pass
+
+First time this repo's full test matrix (unit + integration + UI + Playwright E2E) was run on a brand-new machine with nothing pre-installed. Installed .NET 10 SDK, Node.js LTS, and confirmed Docker (Rancher Desktop) via winget/manual setup; started persistent `cog-sql` / `cog-redis` dev containers.
+
+### Backend — 8 services, 170 unit + 58 integration tests, all passing
+
+**auth-service integration tests unblocked** (was "reproducible hang, survives Docker Desktop restart" per 2026-07-16 notes): `auth-service/tests/AuthService.Tests.csproj` was still pinned to `Testcontainers.MsSql`/`Testcontainers.Redis` **3.7.0** — every other service had been bumped to **4.1.0** in July, but auth-service was missed. The 3.7.0 readiness-wait logic hangs indefinitely against this Docker setup even though the SQL container itself starts fine (verified via manual `sqlcmd`). Bumped both packages to 4.1.0 — 9/9 integration tests now pass in ~22s.
+
+**betting-service startup bug (fresh-database bootstrap failure)**: `Program.cs`'s dev-migration block ran a legacy-compat `ExecuteSqlRawAsync` check (seeding `__EFMigrationsHistory` for DBs that predate EF migrations) *before* `MigrateAsync()`. On a genuinely fresh SQL Server (no `COGDB_Betting` database yet), that raw SQL fails with a login/database-not-found error, is swallowed by the surrounding try/catch, and `MigrateAsync()` — which would have created the database — never runs. Fixed by gating the legacy-compat block on `CanConnectAsync()` first.
+
+### Frontend — 6 UIs + shared/ui-components, 75 unit tests, all passing
+
+Fixed 3 real test failures surfaced on a fresh Node 24 run (none were environment flakiness):
+- **admin-ui, accounts-ui**: `LoginPage` labels had no `htmlFor`/`id` association (`getByLabelText` couldn't resolve them) — a real accessibility bug, not just a test artifact. Fixed both, plus the same pattern in accounts-ui's `TransactionsTab` (Code/Type/Amount/Reference/Description fields) and `CreateCustomerPage`'s shared `FormField` helper (now auto-generates an id via `useId()` + `cloneElement`).
+- **accounts-ui**: `TransactionsTab`'s history table never rendered the `description` column at all (schema had it, form collected it, table just didn't display it) — added the column.
+- **casino-ui**: `CasinoLobbyPage.test.tsx` leaked a `vi.spyOn(axios, 'isAxiosError').mockReturnValue(true)` across tests (`vi.clearAllMocks()` doesn't undo a spy's return value, only `vi.restoreAllMocks()` does) — fixed the test, and separately hardened `sessionError.response?.status` → `sessionError?.response?.status` in `CasinoLobbyPage.tsx` since the component shouldn't crash on a null error regardless of the mock.
+- **lottery-ui**: `GamesPage.test.tsx` asserted on post-load text synchronously instead of `await waitFor(...)`, so it ran before the mocked React Query promise resolved.
+
+### E2E (Playwright) — first real run ever; CI has never executed these specs
+
+Confirmed via `.github/workflows/frontend-apps.yml`: no CI job runs `npm run test:e2e` for either UI — these specs were written but never exercised against live services before today.
+
+**accounts-ui** (21/21 passing): same label-association bugs above blocked essentially every test. Fixed; also fixed two test-side selector ambiguities (`getByText('Free Play')` matched both a balance-card label and a nav tab; `getByText(/wager limit/i)` matched both a form label and a transient "Loading wager limits…" string).
+
+**betting-ui** (14/14 passing): the existing spec (`e2e/betting-flow.spec.ts`) referenced `data-testid` hooks (`bet-type-spread`, `side-home`, `win-amount`, `ticket-number`) and a bet-type/side picker step on the wager-entry page that **do not exist anywhere in the shipped UI** — zero `data-testid` attributes existed in the whole `betting-ui/src` tree. The real flow picks a specific line (type + side + price) directly from the game list via `handleSelectLine`, then enters customer/risk/wager-type on a single subsequent form. Rewrote the spec to match the actual implementation; added two `data-testid="sport-card"`/`"line-button"` hooks (non-behavioral) for stable selectors. Also found and fixed, in service of getting this spec green:
+  - `betting-ui/playwright.config.ts` still pointed `baseURL`/`webServer.url` at `localhost:3000` — a leftover from before the April port-renumbering session; betting-ui has served on 5173 since then. This alone made the E2E suite unable to start at all.
+  - **Real production bug**: `GamesController`'s `GET /api/games` (and `GetGameByIdAsync`) never returned line data at all — `CreateMap<GamePeriod, GamePeriodResponse>()` in `BettingMappingProfile` had no explicit binding from `GamePeriod.LineSet` (source) to `GamePeriodResponse.Lines` (destination); AutoMapper's convention matching doesn't connect differently-named members. Every game, forever, showed "Lines not yet available" in betting-ui regardless of whether lines had actually been set (verified: `PUT /api/lines/{id}/spread` wrote the data correctly; `GET /api/lines/{id}` returned it fine; only the games-list/detail endpoints silently dropped it). Fixed with `.ForMember(d => d.Lines, o => o.MapFrom(s => s.LineSet))`.
+  - **Real production bug**: `LineSet.OfferingMoneyLine`/`OfferingTotal` (`shared/domain/Entities/LineSet.cs`) defaulted to `true` at the entity level, so a freshly created line row claimed to offer moneyline/total odds before anyone had ever set them — rendering broken `+null`/`null` buttons in betting-ui. Defaults changed to `false`; each `Set*Async` method already correctly flips its own flag to `true` when actually setting that market.
+  - **Real production bug, the big one**: `POST /api/wagers` rejected `wagerType: "Straight"` — exactly the string the real React app sends — with a 400, because betting-service (unlike accounts-service, which got this fix back in April) never registered a global `JsonStringEnumConverter`. **Every wager submission through the real betting-ui was broken.** Same gap found in auth-service's `POST /api/users` (numeric enum required, not yet hit by a real frontend flow, so left as a noted finding rather than fixed). Fixed for betting-service in `ServiceCollectionExtensions.AddApplicationServices`.
+  - **Real production bug**: after a successful wager submission, `WagerConfirmationPage` intermittently redirected back to `/sports` instead of landing on `/wagers/pending`. Root cause: a torn read between two independent reactive systems — the component's own empty-draft guard (`if (!customerId || items.length === 0) navigate('/sports')`) ran directly in the render body (not an effect), and `clearDraft()`'s synchronous Zustand notification could force a re-render of the still-mounted confirmation page *before* the component's own `mutation.isSuccess` had flushed, so the guard read stale "not submitted yet" state and fired. Fixed by tracking submission with a plain `useRef` (unaffected by cross-store render-order races, unlike `mutation.isSuccess`) and moving the actual `navigate()` call into a `useEffect`, eliminating both the race and a genuine `"Cannot update a component (BrowserRouter) while rendering a different component (WagerConfirmationPage)"` React warning. Confirmed via a standalone Playwright debug script capturing console/network/navigation events, since the failure symptom (landing on the wrong page) gave no direct signal about *why*.
+
+None of these betting-service/betting-ui bugs were caught by the unit or integration test suites — all four were found only because this was the first time anyone ran the E2E spec against a live stack end-to-end.
+
+### Seed data used for E2E (dev-only, not committed to `database/seed/`)
+- `agent1` / `P@ssw0rd!` — provisioned as a `MasterAgent` in auth-service, accounts-service (`agent1`, id 1), and betting-service (id 1), via `POST /api/agents` (accounts-service) + `POST /api/users` (auth-service) + `POST /api/internal/agents` (betting-service) — accounts-service does **not** auto-provision new agents into auth-service (only into betting-service, via `BettingProvisioningService`); that's a manual step until/unless an `AuthProvisioningService` equivalent is added to accounts-service.
+- `seedcust1` — one customer under `agent1` in both accounts-service and betting-service.
+- One NFL game (Cowboys @ Eagles) with a spread line (`-3.5 / -110`) in betting-service, for the E2E line-picking flow.
+
+### Full status at end of session
+
+| Layer | Result |
+|---|---|
+| 8 backend services — unit tests | 170/170 |
+| 6 backend services — integration tests (Testcontainers) | 58/58 |
+| 6 UIs + shared/ui-components — unit tests | 75/75 |
+| accounts-ui — Playwright E2E | 21/21 |
+| betting-ui — Playwright E2E | 14/14 |
+
+---
+
+## Gap-list follow-up — same 2026-08-30 session, continued
+
+Worked through the punch list left at the end of the full test run above: enum-converter gap, accounts-service→auth-service provisioning gap, missing reports/casino integration tests, thin accounts-ui unit coverage, and missing E2E specs for admin-ui/lottery-ui/reports-ui/casino-ui.
+
+### Cross-cutting: `JsonStringEnumConverter` + FluentValidation auto-validation
+Applied the same `AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()))` fix (already done for accounts-service/betting-service in earlier sessions) to **auth-service, admin-service, alerts-service, lottery-service, reports-service, casino-service**. Also added `services.AddFluentValidationAutoValidation()` to auth-service, betting-service, casino-service — validators registered via `AddValidatorsFromAssemblyContaining<T>()` alone never actually ran without it (`casino-service`'s `Deposit_ZeroAmount` integration test caught this: returned 200 instead of 400).
+
+This broadly-applied fix caused two regressions, both fixed same-session: `betting-service`'s `WagerResponse`-shaped integration test locals still expected numeric `Status`/`WagerType`; `lottery-service`'s `GameSummary` local still expected numeric `GameType`. **lottery-ui**'s frontend also silently broke (numeric `gameType`/`pickType` comparisons and `Record<number,string>` lookups) — caught by manually re-checking the frontend after the backend change, not by a failing test.
+
+### accounts-service now auto-provisions agents into auth-service
+New `AuthProvisioningService` (mirrors the existing `BettingProvisioningService` pattern): on `POST /api/agents`, after persisting the agent, accounts-service now also creates the corresponding auth-service user (`AgentType` → role name: `Master`→`MasterAgent`, `Agent`→`Agent`, `SubAgent`→`SubAgent`) with a generated temporary password, and returns it once in the response (`AgentResponse.TemporaryPassword`). Both provisioning calls (betting + auth) are individually try/caught so a downstream outage never turns a successful agent creation into a 500. accounts-ui's `CreateAgentModal` now shows a "Agent Created" confirmation panel with the login name and temporary password instead of closing immediately. 43/43 accounts-service unit tests (15 new).
+
+### reports-service and casino-service integration tests (previously had none)
+- **casino-service**: 16 new integration tests against a `CasinoApiFactory` with in-memory stub `ILiveDealerClient`/`IAccountsClient` (register, session, balance, deposit, withdraw, including rollback-on-external-failure paths). Needed `public partial class Program { }` (missing — blocked `WebApplicationFactory<Program>`), and the dev `SecretKey` placeholder fixed to match every other service's JWT key (a `ConfigureAppConfiguration` override was tried first and found unreliable for top-level-statement `Program.cs`, same known quirk as betting-service's Redis config in July — fixing the actual `appsettings.json` value is the reliable approach). 26/26 total.
+- **reports-service**: 11 new integration tests. Since reports-service queries the *original 2014 legacy `COGDB` schema* directly via raw ADO.NET (stored procs `rptBetMakerActivity`/`ICBBSearchAgent`/`ICBBSearchCust`/`rptPackageTracker`, table `Customer`/`UpdatedCustomerTransaction`) — far too large to load into a Testcontainer — built a minimal synthetic schema exposing the same object names/columns, backed by dedicated `*Seed` tables. 18/18 total.
+
+### accounts-ui unit test coverage
+Added `customerListPage.test.tsx` (15 tests: role-scoping, search, pagination, states) and `personalTab.test.tsx` (8 tests); expanded `customerDashboard.test.tsx` from 4 to 15 tests (loading/not-found/tab-switching/suspend-activate). Along the way fixed the same missing-`htmlFor` bug in `PersonalTab`'s `Field` helper (now `useId()` + `cloneElement`, matching the pattern already used elsewhere).
+
+### E2E specs — admin-ui, lottery-ui, reports-ui (casino-ui explicitly skipped, see below)
+All three follow the same pattern established for accounts-ui/betting-ui: since none of these apps have real login UI wired to a running auth flow in dev (admin-ui does; lottery-ui/reports-ui read a bare `accessToken` from `localStorage` and assume SSO), a `loginAs()` helper mints a real JWT via `page.request.post()` against auth-service and seeds it with `page.addInitScript()` before navigating.
+
+- **admin-ui** (20/20): fixed missing `htmlFor`/`id` pairs across `UsersPage`, `RolesPage`, `SystemConfigPage` modals.
+- **lottery-ui** (10/10): found and fixed real production bugs while building this spec — see "critical production bugs" below.
+- **reports-ui** (12/12): built a real (non-ephemeral) `COGDB` dev database in the `cog-sql` container with the same synthetic schema used for reports-service's integration tests, seeded with an `agent1`/`e2eplayer1` fixture, and verified every report endpoint via direct `Invoke-RestMethod` calls before writing the spec. Fixed the same missing-`htmlFor` bug across `WagersReport`/`TransactionsReport`/`AgentsReport`. Two selector ambiguities caught the substring-matching gotcha the hard way: `getByLabel('To')` also matched "Cus**to**mer ID (0 = all)", and `getByText('agent1')` also matched "agent1@cog.local" — both fixed with `{ exact: true }`.
+
+**Latent bug found across admin-ui, lottery-ui, reports-ui**: none of the three excluded `e2e/**` from Vitest's own test collection, so `npm test` tried to run the Playwright spec file as a Vitest suite and failed with `Playwright Test did not expect test.describe() to be called here` — this had been silently broken since each app's E2E spec was first added (nobody had re-run `npm test` afterward). accounts-ui and betting-ui already had the right `exclude: ['**/node_modules/**', '**/e2e/**']`; added the same to all three.
+
+### lottery-service — critical production bugs found via the E2E work (would never have been caught by unit/integration tests alone)
+- `TicketsController.Purchase`/`GetMyTickets` read `User.FindFirstValue("customerId")` — **a claim that no real JWT has ever contained** (real claims are `sub`/`domain_id`/etc., per auth-service's actual token issuance). Every real purchase attempt failed. Fixed to read `domain_id`; made the optional `agentId` claim non-blocking via `TryParse` instead of a hard requirement.
+- `AccountsClient.GetBalanceAsync` called accounts-service's `[Authorize]`-protected balance endpoint **with no bearer token**, silently swallowed the resulting 401, and returned `0m` — every purchase failed with "Insufficient balance: Available $0.00" regardless of real balance. Fixed by forwarding the incoming request's `Authorization` header via `IHttpContextAccessor`.
+- Same fresh-database bootstrap bug as betting-service (legacy-compat raw SQL ran before `MigrateAsync()`, swallowed the resulting error on a truly fresh DB) — same `CanConnectAsync()` gating fix.
+- `database/seed/04_lottery_games.sql` had 5 occurrences of invalid `datetime2 + time` SQL Server syntax — fixed with the `DATEADD(DAY, DATEDIFF(DAY, 0, @date), CAST('HH:MM:SS' AS DATETIME2))` idiom.
+
+### casino-ui — real bugs found, E2E explicitly out of scope
+`LoginPage.tsx` posts to `/api/auth/login`, but casino-ui's `vite.config.ts` proxy only had a catch-all `/api` → casino-service (port 5080) rule — **casino-service has no `/api/auth/*` endpoints at all**, so login could never succeed in dev. Fixed by adding a `/api/auth` → auth-service (5010) proxy rule ahead of the catch-all, matching accounts-ui's/admin-ui's existing pattern. Also fixed two latent field-name mismatches masked by the routing bug: the login request sent `{ username, password }` (auth-service requires `loginName`), and the response type expected a `customerId` field that doesn't exist on `AuthTokenResponse` (real field is `domainEntityId`); the failed-login handler read `err.response.data.error`, but auth-service's `Unauthorized` response is a `ProblemDetails` object (`{ title, detail }`, no `error` key) — fixed to read `.detail`. None of this was caught by `LoginPage.test.tsx` since it mocks `axios` entirely, so a wrong field name only ever manifests against a real backend. 11/11 casino-ui unit tests still pass after the fix.
+
+**casino-ui E2E was deliberately not written this session**: `casino-service`'s dev `appsettings.json` points `Register`/`Deposit`/`Withdraw` at the *real* external Live Dealer vendor (`https://ittds.newland.cr`) — there is no local stub outside the Testcontainers integration-test project (which uses `StubLiveDealerClient`). Asked the user how to proceed rather than risk sending real outbound calls to third-party production infrastructure from an automated test run; user chose to skip casino-ui E2E for now. **Follow-up needed**: either a local mock/WireMock stand-in for the vendor API in dev config, or an explicit sanctioned test account, before casino-ui can get real E2E coverage.
+
+### Full status at end of this follow-up
+| Layer | Result |
+|---|---|
+| accounts-service unit tests | 43/43 (was 28/28) |
+| casino-service tests (unit + integration) | 26/26 (was 10/10, no integration) |
+| reports-service tests (unit + integration) | 18/18 (was 7/7, no integration) |
+| accounts-ui unit tests | +38 new (customerListPage, personalTab, expanded customerDashboard) |
+| admin-ui — Playwright E2E | 20/20 (new) |
+| lottery-ui — Playwright E2E | 10/10 (new) |
+| reports-ui — Playwright E2E | 12/12 (new) |
+| casino-ui — Playwright E2E | not written (see above) |
+
+---

@@ -82,8 +82,40 @@ function CreateAgentModal({
   const mutation = useMutation({
     mutationFn: (data: CreateFields) =>
       createAgent({ ...data, parentAgentId: data.parentAgentId || undefined, createdBy: loginName }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['agents'] }); onClose(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['agents'] }); },
   });
+
+  // Show the generated login/password once, on success, instead of closing immediately —
+  // the password is never returned by the API again after this response.
+  if (mutation.isSuccess) {
+    const created = mutation.data;
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+          <h2 className="text-lg font-semibold text-gray-800 mb-1">Agent Created</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Save this password now — it will not be shown again.
+          </p>
+          <div className="space-y-3 bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <div>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Login Name</p>
+              <p className="text-sm font-mono text-gray-900">{created.loginName}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Temporary Password</p>
+              <p className="text-sm font-mono text-gray-900">{created.temporaryPassword ?? '— not available —'}</p>
+            </div>
+          </div>
+          <div className="flex justify-end pt-4">
+            <button type="button" onClick={onClose}
+              className="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
