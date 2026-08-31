@@ -168,6 +168,15 @@ export interface CreateCustomerRequest {
   createdBy: string;
 }
 
+export interface UpdateCustomerRequest {
+  alternateLoginName?: string;
+  email?: string;
+  phone?: string;
+  oddsFormat?: 'American' | 'Decimal' | 'Fractional';
+  instantActionEnabled?: boolean;
+  updatedBy: string;
+}
+
 export interface CreateTransactionRequest {
   customerId: number;
   code: 'Credit' | 'Debit';

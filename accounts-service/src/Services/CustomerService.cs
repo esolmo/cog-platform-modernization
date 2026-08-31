@@ -15,6 +15,7 @@ public interface ICustomerService
     Task<Result<CustomerBalanceResponse>>        GetBalanceAsync(int customerId, CancellationToken ct);
     Task<Result<CustomerResponse>>               GetCustomerByLoginAsync(string loginName, CancellationToken ct);
     Task<Result<PagedResult<CustomerResponse>>>  GetCustomersByAgentAsync(int agentId, int page, int pageSize, CancellationToken ct);
+    Task<Result<PagedResult<CustomerResponse>>>  GetCustomersAsync(string? search, int page, int pageSize, CancellationToken ct);
     Task<Result<CustomerResponse>>               UpdateCustomerAsync(int customerId, UpdateCustomerRequest request, CancellationToken ct);
     Task<Result<CustomerResponse>>               UpdateCreditLimitsAsync(int customerId, UpdateCreditLimitRequest request, CancellationToken ct);
     Task<Result>                                 SuspendCustomerAsync(int customerId, string updatedBy, CancellationToken ct);
@@ -176,6 +177,38 @@ public class CustomerService(
             .Include(c => c.Agent)
             .Where(c => c.AgentId == agentId)
             .OrderBy(c => c.LoginName);
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        var responses = items.Select(c => MapToResponse(c, c.Agent.LoginName)).ToList();
+
+        return Result<PagedResult<CustomerResponse>>.Success(new PagedResult<CustomerResponse>
+        {
+            Items      = responses,
+            TotalCount = total,
+            Page       = page,
+            PageSize   = pageSize
+        });
+    }
+
+    public async Task<Result<PagedResult<CustomerResponse>>> GetCustomersAsync(
+        string? search, int page, int pageSize, CancellationToken ct)
+    {
+        var query = db.Customers
+            .Include(c => c.Balance)
+            .Include(c => c.Agent)
+            .AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(search))
+            query = query.Where(c =>
+                c.LoginName.Contains(search) ||
+                (c.AlternateLoginName != null && c.AlternateLoginName.Contains(search)));
+
+        query = query.OrderBy(c => c.LoginName);
 
         var total = await query.CountAsync(ct);
         var items = await query

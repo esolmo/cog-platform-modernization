@@ -802,3 +802,35 @@ Real production bugs found and fixed today (not test-only issues):
 5. betting-service: same EF execution-strategy bug as #1, self-inflicted in this session's own test fixture (not present in production `WagerService` code — confirm no other `BeginTransactionAsync` usage exists in any `src/` folder before considering this fully closed)
 
 ---
+
+## accounts-ui — Customers page fixed (2026-07-16, follow-up)
+
+User-reported bug: after creating a customer, there was no way to see a customer list, or to modify/suspend one. Screenshots showed `/customers` rendering completely blank (no loading state, no error, nothing) for a logged-in `admin` user, even though creation and the individual customer detail page worked fine.
+
+### Root cause
+`CustomerListPage.tsx` only ever called `getCustomersByAgent(agentId)`, gated behind `enabled: agentId > 0`. An `admin` login is an Employee, not an Agent, so `agentId` is `null` from the JWT claims — the query silently never ran and nothing rendered, not even a loading/error state. There was also no `GET /api/customers` (list-all) endpoint on the backend at all — only `GET /api/customers/{id}`, `by-login/{loginName}`, and `by-agent/{agentId}` existed, so even a fixed frontend would have had nothing admin-appropriate to call.
+
+Separately, `suspendCustomer`/`activateCustomer` API client functions already existed in `accountsApi.ts` but were never called from any page, and there was no `updateCustomer` function at all despite the backend's `UpdateCustomerAsync` being fully implemented — the "Personal" tab was read-only display, not a form.
+
+### Fix
+**Backend (`accounts-service`):**
+- Added `ICustomerService.GetCustomersAsync(search, page, pageSize, ct)` + `CustomerService` impl — paginated, optional login-name search, no agent scoping.
+- Added `GET /api/customers` on `CustomersController`, `[Authorize(Roles = "Admin,MasterAgent")]`.
+
+**Frontend (`accounts-ui`):**
+- `accountsApi.ts` — added `getCustomers(search, page, pageSize)` and `updateCustomer(id, request)`.
+- `types/accounts.ts` — added `UpdateCustomerRequest`.
+- `CustomerListPage.tsx` — branches on role: Admin/MasterAgent call `getCustomers` (with a search box, always enabled), Agent role still calls the scoped `getCustomersByAgent`. This is the actual fix for the blank page. Also added a "No customers found" empty state (previously an empty `data.items` array rendered a header-only table with no explanation).
+- `PersonalTab.tsx` — rewritten from a static `<dl>` into an editable `react-hook-form` + zod form (alternate login, email, phone, odds format, instant-action toggle), mirroring the existing pattern in `LimitsTab.tsx`. Wired to `updateCustomer`.
+- `CustomerDashboardPage.tsx` — added a Suspend/Activate button in the header, wired to the previously-unused `suspendCustomer`/`activateCustomer` calls. This is the "delete" equivalent — financial customer records aren't hard-deleted, matching the backend's existing status-toggle design (there is no delete endpoint anywhere in the API).
+
+### Verification
+Browser automation wasn't available in this environment (Chrome extension not connected), so verified via direct API calls against the running dev backend (real `CogAccounts` DB, not a test DB) instead:
+- `GET /api/customers` → returns all 3 seeded/created customers including the one from the bug report screenshots (`donaldduck`)
+- `GET /api/customers?search=donald` → correctly filters to 1 result
+- `PUT /api/customers/3` → phone update persisted and reflected in a follow-up `GET`
+- `POST /api/customers/3/suspend` → 204, status flips to `Suspended`; `POST .../activate` → 204, flips back to `Active`
+
+`npx tsc --noEmit` clean on accounts-ui; `dotnet build` clean on accounts-service. Not re-run through the automated test suite (no test coverage exists for `CustomerListPage`/`PersonalTab`/`CustomerDashboardPage` yet — see "What's missing" list from the earlier recap).
+
+---
