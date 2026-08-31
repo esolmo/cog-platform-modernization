@@ -11,9 +11,9 @@ public class LineSet
     public decimal? Total { get; set; }
     public decimal? OverJuice { get; set; }
     public decimal? UnderJuice { get; set; }
-    public bool OfferingSpread { get; set; } = true;
-    public bool OfferingMoneyLine { get; set; } = true;
-    public bool OfferingTotal { get; set; } = true;
+    public bool OfferingSpread { get; set; }
+    public bool OfferingMoneyLine { get; set; }
+    public bool OfferingTotal { get; set; }
     public DateTime LastModified { get; set; } = DateTime.UtcNow;
     public string? ModifiedBy { get; set; }
 

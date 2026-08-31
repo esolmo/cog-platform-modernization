@@ -45,6 +45,8 @@ export interface Agent {
   isActive: boolean;
   customerCount: number;
   subAgentCount: number;
+  /** Only populated in the response to createAgent() — shown once, never returned again. */
+  temporaryPassword?: string;
 }
 
 export interface CreateAgentRequest {

@@ -52,27 +52,32 @@ try
 
             // If tables were created by T-SQL Phase 6 scripts, __EFMigrationsHistory may be
             // empty. Seed it so EF skips the InitialCreate and doesn't try to recreate tables.
+            // Only relevant when the database already exists — on a brand-new database this
+            // raw SQL would fail (login error) before MigrateAsync() gets a chance to create it.
             Log.Information("[STARTUP] Ensuring migration history is seeded...");
-            await db.Database.ExecuteSqlRawAsync("""
-                IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-                               WHERE TABLE_NAME = '__EFMigrationsHistory')
-                BEGIN
-                    CREATE TABLE [__EFMigrationsHistory] (
-                        [MigrationId]    nvarchar(150) NOT NULL,
-                        [ProductVersion] nvarchar(32)  NOT NULL,
-                        CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
-                    );
-                END
+            if (await db.Database.CanConnectAsync())
+            {
+                await db.Database.ExecuteSqlRawAsync("""
+                    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                                   WHERE TABLE_NAME = '__EFMigrationsHistory')
+                    BEGIN
+                        CREATE TABLE [__EFMigrationsHistory] (
+                            [MigrationId]    nvarchar(150) NOT NULL,
+                            [ProductVersion] nvarchar(32)  NOT NULL,
+                            CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+                        );
+                    END
 
-                IF NOT EXISTS (SELECT 1 FROM [__EFMigrationsHistory]
-                               WHERE [MigrationId] = '20260409120000_InitialCreate')
-                    AND EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-                                WHERE TABLE_NAME = 'AuditLogs')
-                BEGIN
-                    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
-                    VALUES ('20260409120000_InitialCreate', '8.0.0');
-                END
-                """);
+                    IF NOT EXISTS (SELECT 1 FROM [__EFMigrationsHistory]
+                                   WHERE [MigrationId] = '20260409120000_InitialCreate')
+                        AND EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                                    WHERE TABLE_NAME = 'AuditLogs')
+                    BEGIN
+                        INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+                        VALUES ('20260409120000_InitialCreate', '8.0.0');
+                    END
+                    """);
+            }
 
             Log.Information("[STARTUP] Applying pending migrations (will create DB if absent)...");
             await db.Database.MigrateAsync();

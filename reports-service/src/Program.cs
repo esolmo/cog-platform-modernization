@@ -4,6 +4,7 @@ using Microsoft.OpenApi.Models;
 using ReportsService.Services;
 using Serilog;
 using System.Text;
+using System.Text.Json.Serialization;
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Debug()
@@ -68,7 +69,8 @@ try
     });
 
     builder.Services.AddScoped<IReportsService, ReportsDataService>();
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(c =>
     {

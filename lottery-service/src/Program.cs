@@ -6,6 +6,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using System.Text;
+using System.Text.Json.Serialization;
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Debug()
@@ -72,13 +73,15 @@ try
 
     builder.Services.AddAuthorization();
 
+    builder.Services.AddHttpContextAccessor();
     builder.Services.AddHttpClient<IAccountsClient, AccountsClient>(client =>
     {
         client.BaseAddress = new Uri(builder.Configuration["Services:Accounts"] ?? "http://accounts-service:5020");
     });
 
     builder.Services.AddScoped<ILotteryService, LotteryGameService>();
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(c =>
     {
@@ -130,27 +133,32 @@ try
 
             // If tables were created by T-SQL Phase 6 scripts, seed __EFMigrationsHistory
             // so EF skips InitialCreate and doesn't try to recreate existing tables.
+            // Only relevant when the database already exists — on a brand-new database this
+            // raw SQL would fail (login error) before MigrateAsync() gets a chance to create it.
             Log.Information("[STARTUP] Ensuring migration history is seeded...");
-            await db.Database.ExecuteSqlRawAsync("""
-                IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-                               WHERE TABLE_NAME = '__EFMigrationsHistory')
-                BEGIN
-                    CREATE TABLE [__EFMigrationsHistory] (
-                        [MigrationId]    nvarchar(150) NOT NULL,
-                        [ProductVersion] nvarchar(32)  NOT NULL,
-                        CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
-                    );
-                END
+            if (await db.Database.CanConnectAsync())
+            {
+                await db.Database.ExecuteSqlRawAsync("""
+                    IF NOT EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                                   WHERE TABLE_NAME = '__EFMigrationsHistory')
+                    BEGIN
+                        CREATE TABLE [__EFMigrationsHistory] (
+                            [MigrationId]    nvarchar(150) NOT NULL,
+                            [ProductVersion] nvarchar(32)  NOT NULL,
+                            CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+                        );
+                    END
 
-                IF NOT EXISTS (SELECT 1 FROM [__EFMigrationsHistory]
-                               WHERE [MigrationId] = '20260409120000_InitialCreate')
-                    AND EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
-                                WHERE TABLE_NAME = 'LotteryGames')
-                BEGIN
-                    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
-                    VALUES ('20260409120000_InitialCreate', '8.0.0');
-                END
-                """);
+                    IF NOT EXISTS (SELECT 1 FROM [__EFMigrationsHistory]
+                                   WHERE [MigrationId] = '20260409120000_InitialCreate')
+                        AND EXISTS (SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+                                    WHERE TABLE_NAME = 'LotteryGames')
+                    BEGIN
+                        INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+                        VALUES ('20260409120000_InitialCreate', '8.0.0');
+                    END
+                    """);
+            }
 
             Log.Information("[STARTUP] Applying pending migrations (will create DB if absent)...");
             await db.Database.MigrateAsync();

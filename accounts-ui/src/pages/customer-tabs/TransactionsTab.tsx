@@ -54,8 +54,9 @@ export default function TransactionsTab({ customerId, transactions }: Transactio
         <h2 className="text-base font-semibold text-gray-800 mb-4">New Transaction</h2>
         <form onSubmit={handleSubmit((data) => mutation.mutate(data))} className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Code</label>
+            <label htmlFor="txn-code" className="block text-sm font-medium text-gray-700 mb-1">Code</label>
             <select
+              id="txn-code"
               {...register('code')}
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
             >
@@ -64,8 +65,9 @@ export default function TransactionsTab({ customerId, transactions }: Transactio
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+            <label htmlFor="txn-type" className="block text-sm font-medium text-gray-700 mb-1">Type</label>
             <select
+              id="txn-type"
               {...register('type')}
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
             >
@@ -79,8 +81,9 @@ export default function TransactionsTab({ customerId, transactions }: Transactio
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+            <label htmlFor="txn-amount" className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
             <input
+              id="txn-amount"
               {...register('amount', { valueAsNumber: true })}
               type="number"
               step="0.01"
@@ -89,15 +92,17 @@ export default function TransactionsTab({ customerId, transactions }: Transactio
             {errors.amount && <p className="mt-1 text-xs text-red-500">{errors.amount.message}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Reference</label>
+            <label htmlFor="txn-reference" className="block text-sm font-medium text-gray-700 mb-1">Reference</label>
             <input
+              id="txn-reference"
               {...register('reference')}
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
             />
           </div>
           <div className="col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <label htmlFor="txn-description" className="block text-sm font-medium text-gray-700 mb-1">Description</label>
             <input
+              id="txn-description"
               {...register('description')}
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
             />
@@ -129,6 +134,7 @@ export default function TransactionsTab({ customerId, transactions }: Transactio
               <th className="px-4 py-3 text-left font-medium text-gray-600">Type</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">Amount</th>
               <th className="px-4 py-3 text-right font-medium text-gray-600">Balance After</th>
+              <th className="px-4 py-3 text-left font-medium text-gray-600">Description</th>
               <th className="px-4 py-3 text-left font-medium text-gray-600">Reference</th>
               <th className="px-4 py-3 text-center font-medium text-gray-600">Verified</th>
             </tr>
@@ -155,6 +161,7 @@ export default function TransactionsTab({ customerId, transactions }: Transactio
                 <td className="px-4 py-3 text-right text-gray-700">
                   ${t.balanceAfter.toFixed(2)}
                 </td>
+                <td className="px-4 py-3 text-gray-500">{t.description ?? '—'}</td>
                 <td className="px-4 py-3 text-gray-500">{t.reference ?? '—'}</td>
                 <td className="px-4 py-3 text-center">
                   {t.isVerified ? (
@@ -167,7 +174,7 @@ export default function TransactionsTab({ customerId, transactions }: Transactio
             ))}
             {!transactions?.items.length && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-gray-400 text-sm">
+                <td colSpan={8} className="px-4 py-6 text-center text-gray-400 text-sm">
                   No transactions found.
                 </td>
               </tr>

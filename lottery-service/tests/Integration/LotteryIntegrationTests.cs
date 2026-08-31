@@ -173,7 +173,7 @@ public class LotteryIntegrationTests : IAsyncLifetime
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    private record GameSummary(int Id, string Name, int GameType);
+    private record GameSummary(int Id, string Name, string GameType);
     private record DrawingSummary(int Id, string Name, bool IsOpen, DateTime DrawingTime);
     private record PickEntry(int Number1, int Number2, int Number3, int Number4, decimal Amount);
     private record TicketResponse(int Id, decimal Total, List<PickEntry> Picks);

@@ -59,8 +59,9 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit((d) => mutation.mutate(d))} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+            <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">Username</label>
             <input
+              id="username"
               {...register('username')}
               autoComplete="username"
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -69,8 +70,9 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input
+              id="password"
               type="password"
               {...register('password')}
               autoComplete="current-password"

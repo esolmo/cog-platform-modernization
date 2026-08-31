@@ -97,8 +97,9 @@ export default function PickPage() {
             <h2 className="text-lg font-semibold text-gray-800 mb-4">Drawing &amp; Date</h2>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Drawing</label>
+                <label htmlFor="drawingDetailId" className="block text-sm font-medium text-gray-700 mb-1">Drawing</label>
                 <select
+                  id="drawingDetailId"
                   {...register('drawingDetailId')}
                   className="w-full border border-gray-300 rounded-md p-2 text-sm"
                 >
@@ -110,8 +111,9 @@ export default function PickPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Play Date</label>
+                <label htmlFor="dateToPlay" className="block text-sm font-medium text-gray-700 mb-1">Play Date</label>
                 <input
+                  id="dateToPlay"
                   type="date"
                   {...register('dateToPlay')}
                   defaultValue={new Date().toISOString().split('T')[0]}

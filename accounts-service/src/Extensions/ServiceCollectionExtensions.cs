@@ -16,6 +16,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAgentService, AgentService>();
         services.AddScoped<ITransactionService, TransactionService>();
         services.AddSingleton<IBettingProvisioningService, BettingProvisioningService>();
+        services.AddSingleton<IAuthProvisioningService, AuthProvisioningService>();
         return services;
     }
 

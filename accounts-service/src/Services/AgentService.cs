@@ -5,6 +5,7 @@ using AccountsService.Models.Requests;
 using AccountsService.Models.Responses;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Security.Cryptography;
 
 namespace AccountsService.Services;
 
@@ -42,6 +43,7 @@ public interface IAgentService
 public class AgentService(
     AccountsDbContext db,
     IBettingProvisioningService bettingProvisioning,
+    IAuthProvisioningService authProvisioning,
     ILogger<AgentService> logger) : IAgentService
 {
     // ─── List / read ───────────────────────────────────────────────────────────
@@ -179,15 +181,58 @@ public class AgentService(
         logger.LogInformation("Created agent {LoginName} (Id={Id}) under parent {ParentId}",
             agent.LoginName, agent.Id, agent.ParentAgentId);
 
-        await bettingProvisioning.ProvisionAgentAsync(
-            agent.LoginName,
-            agent.Name,
-            agent.ParentAgentId,
-            (int)agent.AgentType,
-            ct);
+        // The agent record above is already committed — provisioning into the other
+        // services is best-effort from this point on. Each IXxxProvisioningService
+        // implementation is expected to swallow its own exceptions (see
+        // BettingProvisioningService/AuthProvisioningService), but callers here don't
+        // rely on that alone: an unexpected exception must not turn an already-successful
+        // agent creation into a 500 response.
+        try
+        {
+            await bettingProvisioning.ProvisionAgentAsync(
+                agent.LoginName,
+                agent.Name,
+                agent.ParentAgentId,
+                (int)agent.AgentType,
+                ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Betting-service provisioning threw for agent {LoginName}. Agent created locally only.", agent.LoginName);
+        }
 
-        return Result<AgentResponse>.Success(MapToResponse(agent, 0, 0));
+        var temporaryPassword = GenerateTemporaryPassword();
+        try
+        {
+            await authProvisioning.ProvisionAgentAsync(
+                agent.LoginName,
+                temporaryPassword,
+                agent.Id,
+                MapAgentTypeToRoleName(agent.AgentType),
+                ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Auth-service provisioning threw for agent {LoginName}. Agent created locally only.", agent.LoginName);
+        }
+
+        var response = MapToResponse(agent, 0, 0);
+        response.TemporaryPassword = temporaryPassword;
+        return Result<AgentResponse>.Success(response);
     }
+
+    // Auth-service's password policy requires an uppercase letter and a digit —
+    // a fixed prefix guarantees both regardless of what the random suffix contains.
+    private static string GenerateTemporaryPassword() =>
+        $"Cog{Convert.ToHexString(RandomNumberGenerator.GetBytes(6))}!";
+
+    private static string MapAgentTypeToRoleName(AgentType agentType) => agentType switch
+    {
+        AgentType.Master   => "MasterAgent",
+        AgentType.Agent    => "Agent",
+        AgentType.SubAgent => "SubAgent",
+        _                  => "Agent"
+    };
 
     // ─── Update ───────────────────────────────────────────────────────────────
 

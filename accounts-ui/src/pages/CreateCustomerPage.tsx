@@ -1,3 +1,4 @@
+import { useId, cloneElement, type ReactElement } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -172,12 +173,13 @@ function FormField({
 }: {
   label: string;
   error?: string;
-  children: React.ReactNode;
+  children: ReactElement;
 }) {
+  const id = useId();
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
-      {children}
+      <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      {cloneElement(children, { id })}
       {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
     </div>
   );

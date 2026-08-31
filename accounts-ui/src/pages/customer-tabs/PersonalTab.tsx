@@ -1,3 +1,4 @@
+import { useId, cloneElement, type ReactElement } from 'react';
 import { format } from 'date-fns';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -123,12 +124,13 @@ function Field({
 }: {
   label: string;
   error?: string;
-  children: React.ReactNode;
+  children: ReactElement;
 }) {
+  const id = useId();
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
-      {children}
+      <label htmlFor={id} className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      {cloneElement(children, { id })}
       {error && <p className="text-xs text-red-500 mt-0.5">{error}</p>}
     </div>
   );

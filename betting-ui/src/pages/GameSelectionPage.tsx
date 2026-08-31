@@ -76,12 +76,14 @@ export function GameSelectionPage(): React.ReactElement {
                         <div className="space-y-1">
                           <button
                             onClick={() => handleSelectLine(game, period, 'Spread', 'Away', lines.spread! * -1)}
+                            data-testid="line-button"
                             className="w-full rounded bg-gray-100 px-2 py-1 text-xs hover:bg-blue-100 hover:text-blue-800"
                           >
                             {lines.spread! > 0 ? '+' : ''}{(lines.spread! * -1).toFixed(1)} ({lines.spreadJuice})
                           </button>
                           <button
                             onClick={() => handleSelectLine(game, period, 'Spread', 'Home', lines.spread!)}
+                            data-testid="line-button"
                             className="w-full rounded bg-gray-100 px-2 py-1 text-xs hover:bg-blue-100 hover:text-blue-800"
                           >
                             {lines.spread! > 0 ? '+' : ''}{lines.spread!.toFixed(1)} ({lines.spreadJuice})

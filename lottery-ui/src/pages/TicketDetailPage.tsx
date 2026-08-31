@@ -2,7 +2,7 @@ import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { lotteryApi, PickEntryDto } from '../api/lottery';
 
-const PICK_TYPE_LABEL: Record<number, string> = { 1: 'Straight', 2: 'Boxed' };
+const PICK_TYPE_LABEL: Record<PickEntryDto['pickType'], string> = { Straight: 'Straight', Boxed: 'Boxed' };
 
 export default function TicketDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -75,7 +75,7 @@ export default function TicketDetailPage() {
                   </td>
                   <td className="py-2">
                     <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                      pick.pickType === 1
+                      pick.pickType === 'Straight'
                         ? 'bg-blue-100 text-blue-700'
                         : 'bg-purple-100 text-purple-700'
                     }`}>

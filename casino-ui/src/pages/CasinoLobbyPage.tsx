@@ -190,7 +190,7 @@ export function CasinoLobbyPage(): React.ReactElement {
   if (
     !sessionLoading &&
     axios.isAxiosError(sessionError) &&
-    sessionError.response?.status === 404
+    sessionError?.response?.status === 404
   ) {
     navigate('/setup', { replace: true })
     return <></>
